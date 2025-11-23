@@ -7,7 +7,8 @@
 ## 1. Project identity and high‑level summary
 
 **Project name:** OpenNet  
-**Original upstream:** https://github.com/dlinknctu/OpenNet  
+**Original upstream:** https://github.com/dlinknctu/OpenNet
+**now you are at my fork's repo**：https://github.com/thc1006/OpenNet.git 
 
 OpenNet is an SDN emulator / simulator that:
 
@@ -28,7 +29,7 @@ OpenNet is an SDN emulator / simulator that:
 - Root login enabled over SSH for cluster mode.
 - Python 2 for Mininet scripts and ns‑3 bindings.
 
-Your job is to **modernize OpenNet** to work reliably on **Ubuntu 22.04 LTS (or later)** while preserving as much functionality as is practical.
+Your job is to **modernize OpenNet** to work reliably on **Ubuntu 22.04 LTS (or later)** while preserving as much functionality as is practical.（ you should use the claude code Subagents ".claude\agents" to do everything dealing with the jobs）.
 
 ---
 
