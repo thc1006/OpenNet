@@ -3,8 +3,7 @@
 # Usage:
 #   sudo ./scripts/bootstrap-ubuntu-22.04.sh
 #
-# This script is intentionally conservative: it installs packages but does NOT
-# modify your kernel, GRUB configuration, or SSH settings.
+# This script installs packages but does NOT modify your kernel, GRUB, or SSH settings.
 
 set -euo pipefail
 
