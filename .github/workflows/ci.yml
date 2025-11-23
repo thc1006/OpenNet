@@ -1,0 +1,35 @@
+name: OpenNet CI (Ubuntu 22.04)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo bash scripts/bootstrap-ubuntu-22.04.sh
+
+      - name: Environment sanity check
+        run: |
+          bash scripts/dev-env-check.sh
+
+      - name: Build ns-3 and Mininet (placeholder)
+        run: |
+          echo "TODO: wire in ns-3 + Mininet build commands here."
+          echo "For example:"
+          echo "  - download/extract ns-allinone-3.22"
+          echo "  - apply patches from ns3-patch/"
+          echo "  - run ./waf configure && ./waf build"
+
+      - name: Run a minimal OpenNet smoke test (placeholder)
+        run: |
+          echo "TODO: run one short OpenNet example here, e.g.:"
+          echo "  sudo python3 mininet/examples/opennet/<some_example>.py"
