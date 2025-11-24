@@ -1,0 +1,131 @@
+# docker-compose.yml - OpenNet Container Configuration
+#
+# This file provides convenient container management for OpenNet development.
+#
+# Usage:
+#   # Build the container
+#   docker compose -f docker/docker-compose.yml build
+#
+#   # Run interactive shell
+#   docker compose -f docker/docker-compose.yml run --rm opennet
+#
+#   # Run smoke tests
+#   docker compose -f docker/docker-compose.yml run --rm opennet --test
+#
+#   # Run Mininet test
+#   docker compose -f docker/docker-compose.yml run --rm opennet --mn-test
+#
+#   # Build without Python bindings (faster)
+#   docker compose -f docker/docker-compose.yml build --build-arg NS3_DISABLE_PYTHON=true
+#
+# Important Notes:
+#   - OVS requires kernel module access. The compose file mounts /lib/modules from host.
+#   - For best results, load the openvswitch kernel module on the host first:
+#       sudo modprobe openvswitch
+#   - The container runs in privileged mode by default for full OVS/Mininet support.
+
+services:
+  opennet:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Set to "false" to enable Python bindings (slower build)
+        NS3_DISABLE_PYTHON: "true"
+    image: opennet:latest
+    container_name: opennet-dev
+
+    # Network mode: host gives better network namespace access
+    # Use "bridge" if you need container isolation
+    network_mode: host
+
+    # Privileged mode is the most reliable for OVS/Mininet
+    # Alternative: use cap_add below (may not work on all hosts)
+    privileged: true
+
+    # If you prefer not to use privileged mode, uncomment these capabilities:
+    # Note: This may not work on all systems - privileged is more reliable
+    # cap_add:
+    #   - NET_ADMIN      # Network administration (required)
+    #   - SYS_ADMIN      # System admin for namespaces (required)
+    #   - NET_RAW        # Raw socket access (required for ping)
+    #   - SYS_MODULE     # Load kernel modules (for OVS)
+    #   - SYS_PTRACE     # Process tracing (for debugging)
+    #   - MKNOD          # Create device nodes
+
+    # Security options for better namespace support
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+
+    # Mount kernel modules from host (required for OVS kernel datapath)
+    volumes:
+      # Kernel modules for OVS
+      - /lib/modules:/lib/modules:ro
+      # Optional: persist OVS database between runs
+      - ovs-data:/etc/openvswitch
+      # Optional: mount source code for development
+      # - ..:/opt/opennet:rw
+
+    # Environment variables
+    environment:
+      - TERM=xterm-256color
+      # Set to "1" to force userspace datapath (not recommended)
+      - OVS_FORCE_USERSPACE=0
+
+    # Use pseudo-TTY for interactive sessions
+    stdin_open: true
+    tty: true
+
+    # Working directory
+    working_dir: /opt/opennet
+
+    # Default command (can be overridden)
+    # Use: docker compose run --rm opennet --test
+    # Or:  docker compose run --rm opennet --shell
+    command: ["--shell"]
+
+  # Alternative service without privileged mode
+  # Use this for testing on systems where privileged is not available
+  opennet-unprivileged:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        NS3_DISABLE_PYTHON: "true"
+    image: opennet:latest
+    container_name: opennet-unprivileged
+
+    # Use specific capabilities instead of privileged
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - NET_RAW
+      - SYS_MODULE
+
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+
+    volumes:
+      - /lib/modules:/lib/modules:ro
+      - ovs-data:/etc/openvswitch
+
+    environment:
+      - TERM=xterm-256color
+      - OVS_FORCE_USERSPACE=0
+
+    stdin_open: true
+    tty: true
+    working_dir: /opt/opennet
+    command: ["--shell"]
+
+    # Profile: only start when explicitly requested
+    # docker compose --profile unprivileged run --rm opennet-unprivileged
+    profiles:
+      - unprivileged
+
+# Named volumes for persistence
+volumes:
+  ovs-data:
+    driver: local
