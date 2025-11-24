@@ -152,6 +152,12 @@ RUN git clone https://github.com/mininet/mininet.git /root/mininet && \
     git checkout 2.3.1b4 && \
     pip3 install -e . || echo "WARNING: Mininet pip install had issues."
 
+# Fix Python SyntaxWarnings in Mininet cli.py
+# Line 143: "is" with a literal -> use "==" instead
+# Line 442: "is not" with a literal -> use "!=" instead
+RUN sed -i "s/if line is '':/if line == '':/" /root/mininet/mininet/cli.py && \
+    sed -i "s/if key is not '':/if key != '':/" /root/mininet/mininet/cli.py
+
 # Build and install mnexec (required for Mininet to work)
 RUN cd /root/mininet && \
     make mnexec && \
@@ -178,6 +184,7 @@ RUN if [ -d /root/opennet-mininet/mininet/cluster ]; then \
 # Install ping and other network tools for Mininet tests
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
+    telnet \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy Python 3 converted OpenNet modules into Mininet
