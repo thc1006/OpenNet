@@ -78,7 +78,9 @@ RUN mkdir -p /var/run/openvswitch /var/log/openvswitch /etc/openvswitch && \
     ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
 
 # Install cppyy for Python bindings (specific version for ns-3.37-3.41)
-RUN pip3 install --break-system-packages cppyy==2.4.2
+# Upgrade pip first, then install cppyy
+RUN pip3 install --upgrade pip && \
+    pip3 install cppyy==2.4.2
 
 # Download and build ns-3.41 with Python bindings
 WORKDIR /root
@@ -101,9 +103,9 @@ RUN git clone https://github.com/mininet/mininet.git && \
     git checkout 2.3.1b4 && \
     pip3 install --break-system-packages -e .
 
-# Build and install mnexec
+# Build and install mnexec (use explicit version to avoid python vs python3 issue)
 RUN cd /root/mininet && \
-    make mnexec && \
+    cc -Wall -Wextra -DVERSION=\"2.3.1b4\" mnexec.c -o mnexec && \
     install -m 755 mnexec /usr/local/bin/
 
 # Fix Mininet Python 3 warnings

@@ -44,9 +44,33 @@ docker run --rm --privileged opennet:latest bash -c "mn --test pingall"
 | Mininet core | Working | All topologies (tree, linear, single, torus) |
 | OVS switches | Working | OVS 2.17.9 |
 | ns-3 C++ examples | Working | hello-simulator, etc. |
-| ns-3 Python bindings | Not available | ns-3.22 requires Python 2 for bindings |
-| OpenNet Wi-Fi examples | Requires ns-3 bindings | |
-| OpenNet LTE examples | Requires ns-3 bindings | |
+| ns-3.22 Python bindings | Not available | Legacy ns-3.22 requires Python 2 |
+| **ns-3.41 Python bindings** | **Working** | Use `opennet:ns3-modern` image |
+| OpenNet Wi-Fi examples | Experimental | Use ns3-modern image |
+| OpenNet LTE examples | Experimental | Use ns3-modern image |
+
+## Docker Images
+
+### Standard Image (ns-3.22, legacy)
+```bash
+docker build -t opennet:latest -f docker/Dockerfile .
+docker run --rm -it --privileged opennet:latest --shell
+```
+- Mininet + OVS fully working
+- ns-3 C++ examples working
+- Python bindings NOT available (ns-3.22 limitation)
+
+### Modern Image (ns-3.41, Python 3 bindings)
+```bash
+docker build -t opennet:ns3-modern -f docker/Dockerfile.ns3-modern .
+docker run --rm -it --privileged opennet:ns3-modern bash
+
+# Test Python bindings
+docker run --rm opennet:ns3-modern python3 -c "from ns import ns; print(ns.wifi)"
+```
+- Full Python 3 bindings via Cppyy
+- WiFi, LTE, Mesh modules accessible from Python
+- Enables OpenNet WiFi/LTE examples
 
 ## Requirements
 
