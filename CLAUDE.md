@@ -95,15 +95,63 @@ This project is assumed to be a fork/clone of the original OpenNet repo, with th
   - `mininet/mininet/opennet.py` – Utilities for NetAnim and pcap.
 - `ns-allinone-3.xx/` – ns‑3 all‑in‑one tree (legacy; likely `ns-allinone-3.22/`).
 
-**Modernization additions (to be created or maintained by Claude):**
+**Modernization additions (created/maintained):**
 
 - `scripts/bootstrap-ubuntu-22.04.sh` – Idempotent host‑level dependency installer.
 - `scripts/dev-env-check.sh` – Quick sanity checks (versions, paths, environment).
-- `docker/Dockerfile` – Modern development/runtime container.
-- `docker/docker-compose.yml` (optional) – For multi‑container topologies or CI.
-- `.github/workflows/ci.yml` – Minimal CI that builds ns‑3 + Mininet and runs a smoke test.
-- `docs/REFACTORING_PLAN.md` – Detailed human‑readable migration plan (kept up to date).
-- `docs/ARCHITECTURE-OVERVIEW.md` – System overview derived from `doc/TUTORIAL.md` and the OpenNet paper.
+- `scripts/build-ns3.sh` – ns-3.22 build script with GCC 11+ patches.
+- `docker/Dockerfile` – ns-3.22 legacy container (Mininet works, ns-3 C++ works, Python bindings disabled).
+- `docker/Dockerfile.ns3-modern` – ns-3.38+ container with full Python 3 bindings via Cppyy.
+- `docker/docker-compose.yml` – For development with volume mounts.
+- `docker/entrypoint.sh` – Smoke test runner with OVS startup.
+- `.github/workflows/ci.yml` – Docker-based CI with smoke tests.
+- `mininet-py3/` – Python 3 converted Mininet/OpenNet modules (ns3.py, wifi.py, lte.py, opennet.py, cli.py).
+- `ns3-patch/gcc11-compat.patch` – GCC 11+ compatibility for ns-3.22.
+- `docs/REFACTORING_PLAN.md` – Detailed migration plan (kept up to date).
+- `docs/ARCHITECTURE-OVERVIEW.md` – System overview.
+
+---
+
+## 3.1 Current Modernization Status (Updated 2024-11)
+
+### What Works
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Mininet core | ✅ Working | All topologies, pingall, iperf |
+| OVS switches | ✅ Working | v2.17.9 |
+| ns-3 C++ examples | ✅ Working | hello-simulator, etc. |
+| Python 3 Mininet modules | ✅ Working | mininet-py3/ |
+| Docker build | ✅ Working | ~4GB image |
+| GitHub Actions CI | ✅ Working | Smoke tests pass |
+
+### Known Limitations
+
+| Limitation | Reason | Solution |
+|------------|--------|----------|
+| ns-3.22 Python bindings | Pybindgen requires Python 2 | Use `docker/Dockerfile.ns3-modern` with ns-3.38+ |
+| OpenNet Wi-Fi/LTE examples | Require ns-3 Python bindings | Upgrade to ns-3.38+ or use Mininet-WiFi |
+| LTE patches | Circular dependency in wscript | Needs refactoring (TeidDscpMapping to shared module) |
+| Time dilation | Requires custom kernel | Out of scope for Docker |
+
+### Docker Images
+
+1. **`opennet:latest`** (Dockerfile) - ns-3.22 legacy
+   - Mininet + OVS working
+   - ns-3 C++ examples working
+   - Python bindings NOT available
+
+2. **`opennet:ns3-modern`** (Dockerfile.ns3-modern) - ns-3.38+
+   - Full Python 3 bindings via Cppyy
+   - `pip install ns3` alternative
+   - May require OpenNet patches to be updated for ns-3.38 API
+
+### Alternative: Mininet-WiFi
+
+For wireless SDN without ns-3 dependencies:
+- https://github.com/intrig-unicamp/mininet-wifi
+- Native WiFi via Linux hwsim
+- Python 3 compatible
 
 ---
 
