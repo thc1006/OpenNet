@@ -1,44 +1,51 @@
 ---
-- name: Set gccxml
-  set_fact:
-    gccxml_repos: "https://github.com/gccxml/gccxml.git"
-    gccxml_dir_path: "{{ temp_location }}/gccxml"
+# gccxml role - DEPRECATED, replaced by castxml
+#
+# gccxml is no longer maintained and does not work with modern GCC (5+).
+# castxml is the official replacement and is used by modern ns-3 versions.
+#
+# This role now:
+#   1. Installs castxml from the system package manager
+#   2. Creates a compatibility symlink (optional, for legacy scripts)
+#
+# The apt role already installs castxml, so this role just verifies it.
+
+- name: gccxml deprecation notice
+  debug:
+    msg: |
+      [DEPRECATED] gccxml is replaced by castxml on Ubuntu 22.04+ / Debian 12+.
+      gccxml does not work with modern GCC (5+) and is unmaintained.
+      castxml is the official replacement used by modern ns-3 and pygccxml.
   tags: gccxml
-- name: Clone gccxml
-  git:
-    repo: "{{ gccxml_repos }}"
-    dest: "{{ gccxml_dir_path }}"
-    update: no
-    accept_hostkey: true
+
+- name: Ensure castxml is installed (replaces gccxml)
+  apt:
+    name: castxml
+    state: present
   tags: gccxml
-- name: Create gccxml-build directory
-  file:
-    path: "{{ gccxml_dir_path }}/gccxml-build"
-    state: directory
+
+- name: Verify castxml installation
+  command: "castxml --version"
+  register: castxml_check
+  changed_when: false
   tags: gccxml
-- name: cmake gccxml
-  command: "cmake ../"
-  args:
-    chdir: "{{ gccxml_dir_path }}/gccxml-build"
+
+- name: Display castxml version
+  debug:
+    msg: "castxml installed: {{ castxml_check.stdout_lines[0] | default('unknown') }}"
   tags: gccxml
-- name: make gccxml
-  command: "make"
-  args:
-    chdir: "{{ gccxml_dir_path }}/gccxml-build"
-  tags: gccxml
-- name: make install gccxml
-  command: "make install"
-  args:
-    chdir: "{{ gccxml_dir_path }}/gccxml-build"
-  tags: gccxml
-- name: Create gccxml link from /usr/local/bin/gccxml /bin/gccxml
-  file:
-    src: "/usr/local/bin/gccxml"
-    dest: "/bin/gccxml"
-    state: link
-  tags: gccxml
-- name: Remove gccxml source code
-  file:
-    path: "{{ gccxml_dir_path }}"
-    state: absent
-  tags: gccxml
+
+# Legacy tasks removed:
+# - Clone gccxml from GitHub (unmaintained, doesn't work with GCC 5+)
+# - Build gccxml from source
+# - Create /bin/gccxml symlink
+
+# Optional: Create gccxml -> castxml symlink for legacy compatibility
+# Uncomment if you have scripts that explicitly call 'gccxml'
+#
+# - name: Create gccxml compatibility symlink (optional)
+#   file:
+#     src: "/usr/bin/castxml"
+#     dest: "/usr/local/bin/gccxml"
+#     state: link
+#   tags: gccxml

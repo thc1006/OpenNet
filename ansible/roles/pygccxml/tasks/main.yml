@@ -1,35 +1,56 @@
 ---
-- name: Set pygccxml
-  set_fact:
-    pygccxml_url: "http://nchc.dl.sourceforge.net/project/pygccxml/pygccxml/pygccxml-1.0/pygccxml-{{ PYGCCXML_VERSION }}.zip"
+# pygccxml role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - No longer downloads pygccxml 1.0.0 from SourceForge (Python 2 only)
+#   - Uses system package python3-pygccxml instead
+#   - No longer patches hardcoded Python 2.7 paths
+#   - castxml is used instead of deprecated gccxml
+#
+# The apt role now installs:
+#   - python3-pygccxml (Python 3 bindings)
+#   - castxml (C++ parser, replaces gccxml)
+#
+# This role verifies the installation and prints configuration info.
+
+- name: Verify python3-pygccxml is installed
+  apt:
+    name: python3-pygccxml
+    state: present
   tags: pygccxml
-- name: Download pygccxml
-  get_url:
-    url: "{{ pygccxml_url }}"
-    dest: "{{ temp_location }}"
+
+- name: Verify castxml is installed
+  apt:
+    name: castxml
+    state: present
   tags: pygccxml
-- name: Unzip pygccxml-1.0.0.zip
-  unarchive:
-    src: "{{ temp_location }}/pygccxml-{{ PYGCCXML_VERSION }}.zip"
-    dest: "{{ temp_location }}"
+
+- name: Check pygccxml version
+  command: "python3 -c 'import pygccxml; print(pygccxml.__version__)'"
+  register: pygccxml_version
+  changed_when: false
+  ignore_errors: yes
   tags: pygccxml
-- name: Install pygccxxml
-  command: "python setup.py install"
-  args:
-    chdir: "{{ temp_location }}/pygccxml-{{ PYGCCXML_VERSION }}"
+
+- name: Check castxml version
+  command: "castxml --version"
+  register: castxml_version
+  changed_when: false
+  ignore_errors: yes
   tags: pygccxml
-- name: Patch pygccxml config
-  replace:
-    dest: "/usr/local/lib/python2.7/dist-packages/pygccxml/parser/config.py"
-    regexp: "gccxml_path=''"
-    replace: "gccxml_path='/usr/local/bin'"
-    backup: no
+
+- name: Display pygccxml installation info
+  debug:
+    msg: |
+      pygccxml installation status:
+        - pygccxml version: {{ pygccxml_version.stdout | default('not installed') }}
+        - castxml version: {{ castxml_version.stdout_lines[0] | default('not installed') }}
+
+      Note: This replaces the legacy gccxml + pygccxml 1.0.0 installation.
+      ns-3 Python bindings now use castxml instead of gccxml.
   tags: pygccxml
-- name: Remove pygccxml source code
-  file:
-    path: "{{ temp_location }}/{{ item }}"
-    state: absent
-  with_items:
-    - pygccxml-{{ PYGCCXML_VERSION }}.zip
-    - pygccxml-{{ PYGCCXML_VERSION }}
-  tags: pygccxml
+
+# Legacy tasks removed:
+# - Download pygccxml 1.0.0 from SourceForge (Python 2 only)
+# - Patch /usr/local/lib/python2.7/dist-packages/ paths
+# - Build gccxml from source

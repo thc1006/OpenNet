@@ -1,18 +1,65 @@
 ---
-- name: Set Netanim
+# netanim role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - Changed from qmake-qt4 to qmake (Qt5)
+#   - Qt4 is not available on Ubuntu 22.04+
+#   - Added proper error handling
+#   - NetAnim 3.105 (bundled with ns-3.22) may have Qt5 compatibility issues
+#
+# Note: If NetAnim build fails, you can still use OpenNet without visualization.
+#       Consider using a newer ns-3 version with updated NetAnim for better Qt5 support.
+
+- name: Set Netanim variables
   set_fact:
     netanim_location: "{{ home_location }}/ns-allinone-{{ NS3_VERSION }}/netanim-{{ NETANIM_VERSION }}"
   tags: netanim
-- name: qmake Netanim
-  command: "qmake-qt4 NetAnim.pro"
-  args:
-    chdir: "{{ netanim_location }}"
+
+- name: Check if NetAnim directory exists
+  stat:
+    path: "{{ netanim_location }}"
+  register: netanim_dir
   tags: netanim
-- name: make Netanim
-  command: "make"
+
+- name: Check for qmake (Qt5)
+  command: "which qmake"
+  register: qmake_check
+  ignore_errors: yes
+  changed_when: false
+  tags: netanim
+
+- name: Display Qt status
+  debug:
+    msg: "qmake found at: {{ qmake_check.stdout | default('NOT FOUND') }}"
+  tags: netanim
+
+- name: qmake Netanim (Qt5)
+  command: "qmake NetAnim.pro"
   args:
     chdir: "{{ netanim_location }}"
-  async: 0
-  poll: 0
-  ignore_errors: true
+  register: qmake_result
+  ignore_errors: yes
+  when: netanim_dir.stat.exists and qmake_check.rc == 0
+  tags: netanim
+
+- name: make Netanim
+  command: "make -j{{ ansible_processor_vcpus | default(2) }}"
+  args:
+    chdir: "{{ netanim_location }}"
+  register: make_result
+  ignore_errors: yes
+  when: netanim_dir.stat.exists and qmake_result is defined and qmake_result.rc == 0
+  tags: netanim
+
+- name: NetAnim build summary
+  debug:
+    msg: |
+      NetAnim build summary:
+        - Location: {{ netanim_location }}
+        - Directory exists: {{ netanim_dir.stat.exists | default(false) }}
+        - qmake: {{ 'OK' if (qmake_result is defined and qmake_result.rc == 0) else 'FAILED or SKIPPED' }}
+        - make: {{ 'OK' if (make_result is defined and make_result.rc == 0) else 'FAILED or SKIPPED' }}
+
+      Note: NetAnim is optional. OpenNet can run without visualization.
+      If build failed, it may be due to Qt5 incompatibility with NetAnim 3.105.
   tags: netanim

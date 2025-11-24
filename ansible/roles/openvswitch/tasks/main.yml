@@ -1,61 +1,55 @@
 ---
-- name: Set OpenvSwitch
-  set_fact:
-    ovs_url: "http://openvswitch.org/releases/openvswitch-{{ OVS_VERSION }}.tar.gz"
+# openvswitch role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - Use system packages instead of building from source
+#   - Ubuntu 22.04 provides OVS 2.17+ which is much newer than legacy 2.4.0
+#   - Removed python-openvswitch (Python 2) - use python3-openvswitch instead
+#   - Updated Ansible syntax to modern FQCN format
+#
+# The apt role already installs openvswitch-switch and openvswitch-common.
+# This role ensures the service is running and verifies the installation.
+
+- name: Ensure Open vSwitch packages are installed
+  ansible.builtin.apt:
+    name:
+      - openvswitch-switch
+      - openvswitch-common
+    state: present
   tags: openvswitch
-- name: Download OpenvSwitch
-  get_url:
-    url: "{{ ovs_url }}"
-    dest: "{{ temp_location }}"
+
+- name: Ensure Open vSwitch service is started and enabled
+  ansible.builtin.service:
+    name: openvswitch-switch
+    state: started
+    enabled: yes
   tags: openvswitch
-- name: Untar OpenvSwitch
-  unarchive:
-    src: "{{ temp_location }}/openvswitch-{{ OVS_VERSION }}.tar.gz"
-    dest: "{{ temp_location }}"
-  tags: openvswitch
-- name: Build OpenvSwitch debian packages
-  command: "fakeroot debian/rules binary"
-  environment:
-    DEB_BUILD_OPTIONS: 'parallel=2 nocheck'
-  args:
-    chdir: "{{ temp_location }}/openvswitch-{{ OVS_VERSION }}"
-  tags: openvswitch
-- name: Install OpenvSwitch debian packages
-  command: "dpkg -i {{ item }}"
-  with_items:
-    - openvswitch-common_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-switch_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-pki_{{ OVS_VERSION }}-1_all.deb
-    - python-openvswitch_{{ OVS_VERSION }}-1_all.deb
-  args:
-    chdir: "{{ temp_location }}"
-  notify: Restart OpenvSwitch daemon
-  tags: openvswitch
-- name: Start OpenvSwitch Daemon
-  service: name=openvswitch-switch state=started enabled=yes
-  tags: openvswitch
-- name: Check OpenvSwitch Database Version
-  command: "ovs-vsctl --version"
+
+- name: Check Open vSwitch version
+  ansible.builtin.command: "ovs-vsctl --version"
   register: ovsdb_version
+  changed_when: false
   tags: openvswitch
-- debug: msg="OpenvSwitch Database Version {{ ovsdb_version.stdout }}"
+
+- name: Check Open vSwitch daemon status
+  ansible.builtin.command: "ovs-vsctl show"
+  register: ovs_status
+  changed_when: false
+  ignore_errors: yes
   tags: openvswitch
-- name: Remove OpenvSwitch source code
-  file:
-    path: "{{ temp_location }}/{{ item }}"
-    state: absent
-  with_items:
-    - openvswitch-{{ OVS_VERSION }}
-    - openvswitch-{{ OVS_VERSION }}.tar.gz
-    - openvswitch-switch_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-common_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-datapath-dkms_{{ OVS_VERSION }}-1_all.deb
-    - openvswitch-datapath-source_{{ OVS_VERSION }}-1_all.deb
-    - openvswitch-dbg_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-ipsec_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-pki_{{ OVS_VERSION }}-1_all.deb
-    - openvswitch-test_{{ OVS_VERSION }}-1_all.deb
-    - openvswitch-testcontroller_{{ OVS_VERSION }}-1_amd64.deb
-    - openvswitch-vtep_{{ OVS_VERSION }}-1_amd64.deb
-    - python-openvswitch_{{ OVS_VERSION }}-1_all.deb
+
+- name: Display Open vSwitch status
+  ansible.builtin.debug:
+    msg: |
+      Open vSwitch installation status:
+        - Version: {{ ovsdb_version.stdout_lines[0] | default('unknown') }}
+        - Status: {{ 'Running' if ovs_status.rc == 0 else 'Not running or error' }}
+
+      Note: Using system OVS package instead of building from source.
+      Ubuntu 22.04 provides OVS 2.17+, which is newer than legacy 2.4.0.
   tags: openvswitch
+
+# Legacy tasks removed:
+# - Download and build OVS from source (unnecessary, system packages are fine)
+# - Install python-openvswitch (Python 2 only, not available on modern systems)
+# - Complex cleanup of build artifacts

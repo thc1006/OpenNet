@@ -1,58 +1,129 @@
 ---
-- name: Set quagga
-  set_fact:
-    quagga_repos: "git://git.savannah.nongnu.org/quagga.git"
-    quagga_dir_path: "{{ home_location }}/quagga"
+# quagga role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - Default to FRRouting (FRR) which is the modern successor to Quagga
+#   - FRR is available as a system package on Ubuntu 22.04+
+#   - Legacy Quagga build from source is still available via use_legacy_quagga variable
+#   - Updated Ansible syntax to modern FQCN format
+#
+# Note: FRRouting (FRR) is backward compatible with Quagga for most use cases.
+#       Set use_legacy_quagga: true to build original Quagga from source.
+
+# === FRRouting (default, recommended) ===
+
+- name: Install FRRouting from system packages
+  ansible.builtin.apt:
+    name:
+      - frr
+      - frr-pythontools
+    state: present
+  when: use_legacy_quagga | default(false) | bool == false
   tags: quagga
 
-- name: Clone quagga
-  git:
+- name: Enable FRR daemons
+  ansible.builtin.lineinfile:
+    path: /etc/frr/daemons
+    regexp: "^{{ item }}="
+    line: "{{ item }}=yes"
+  loop:
+    - zebra
+    - bgpd
+    - ospfd
+    - ripd
+  when: use_legacy_quagga | default(false) | bool == false
+  ignore_errors: yes
+  tags: quagga
+
+- name: Start and enable FRR service
+  ansible.builtin.service:
+    name: frr
+    state: started
+    enabled: yes
+  when: use_legacy_quagga | default(false) | bool == false
+  ignore_errors: yes
+  tags: quagga
+
+# === Legacy Quagga (build from source) ===
+
+- name: Set quagga variables (legacy mode)
+  ansible.builtin.set_fact:
+    quagga_repos: "git://git.savannah.nongnu.org/quagga.git"
+    quagga_dir_path: "{{ home_location }}/quagga"
+  when: use_legacy_quagga | default(false) | bool == true
+  tags: quagga
+
+- name: Clone quagga (legacy mode)
+  ansible.builtin.git:
     repo: "{{ quagga_repos }}"
     dest: "{{ quagga_dir_path }}"
     update: no
     accept_hostkey: true
-    version: "quagga-{{ QUAGGA_VERSION }}"
+    version: "quagga-{{ QUAGGA_VERSION | default('1.2.4') }}"
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Patch configure.ac
-  patch:
+- name: Patch configure.ac (legacy mode)
+  ansible.builtin.patch:
     src: "{{ item }}"
     basedir: "{{ quagga_dir_path }}"
     strip: 1
   with_items:
     - quagga-configure.patch
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Autoreconf
-  command: "autoreconf --force --install"
+- name: Autoreconf (legacy mode)
+  ansible.builtin.command: "autoreconf --force --install"
   args:
     chdir: "{{ quagga_dir_path }}"
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Configure Quagga
-  command: "./configure --enable-user=root --enable-group=root --enable-vty-group=root --enable-vtysh --sysconfdir=/etc/quagga --prefix=/usr/local"
+- name: Configure Quagga (legacy mode)
+  ansible.builtin.command: "./configure --enable-user=root --enable-group=root --enable-vty-group=root --enable-vtysh --sysconfdir=/etc/quagga --prefix=/usr/local"
   args:
     chdir: "{{ quagga_dir_path }}"
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Make
-  command: "make"
+- name: Make Quagga (legacy mode)
+  ansible.builtin.command: "make -j{{ ansible_processor_vcpus | default(2) }}"
   args:
     chdir: "{{ quagga_dir_path }}"
+  register: quagga_make
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Make install
-  command: "make install"
+- name: Make install Quagga (legacy mode)
+  ansible.builtin.command: "make install"
   args:
     chdir: "{{ quagga_dir_path }}"
+  when: use_legacy_quagga | default(false) | bool == true and quagga_make is defined and quagga_make.rc == 0
+  ignore_errors: yes
   tags: quagga
 
-- name: Link shared libraries
-  command: "ldconfig"
+- name: Link shared libraries (legacy mode)
+  ansible.builtin.command: "ldconfig"
+  when: use_legacy_quagga | default(false) | bool == true and quagga_make is defined and quagga_make.rc == 0
   tags: quagga
 
-- name: Copy config to /etc/quagga
-  copy:
+- name: Create /etc/quagga directory (legacy mode)
+  ansible.builtin.file:
+    path: /etc/quagga
+    state: directory
+    mode: '0755'
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
+  tags: quagga
+
+- name: Copy config to /etc/quagga (legacy mode)
+  ansible.builtin.copy:
     src: "{{ item }}"
     dest: "/etc/quagga/{{ item }}"
   with_items:
@@ -66,11 +137,33 @@
     - ripngd.conf
     - vtysh.conf
     - zebra.conf
+  when: use_legacy_quagga | default(false) | bool == true
+  ignore_errors: yes
   tags: quagga
 
-- name: Remove quagga source code
-  file:
+- name: Remove quagga source code (legacy mode)
+  ansible.builtin.file:
     path: "{{ quagga_dir_path }}"
     state: absent
+  when: use_legacy_quagga | default(false) | bool == true
   tags: quagga
 
+# === Status summary ===
+
+- name: Check routing daemon status
+  ansible.builtin.command: "which vtysh"
+  register: vtysh_check
+  ignore_errors: yes
+  changed_when: false
+  tags: quagga
+
+- name: Routing daemon installation summary
+  ansible.builtin.debug:
+    msg: |
+      Routing daemon installation summary:
+        - Mode: {{ 'Legacy Quagga (from source)' if (use_legacy_quagga | default(false) | bool) else 'FRRouting (system package)' }}
+        - vtysh available: {{ 'YES' if vtysh_check.rc == 0 else 'NO' }}
+
+      Note: FRRouting (FRR) is the modern successor to Quagga.
+      Set use_legacy_quagga: true in your playbook to use legacy Quagga.
+  tags: quagga

@@ -1,21 +1,63 @@
 ---
-- name: Be sure ntp daemon is installed
-  apt: name=ntp state=installed
+# ntp role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - Uses systemd-timesyncd (default on modern Ubuntu/Debian) instead of legacy ntp
+#   - Timezone is configurable via variable (defaults to UTC)
+#   - Uses timedatectl instead of direct file manipulation
+#   - Updated Ansible syntax to modern FQCN format
+#
+# Note: If you need full NTP server functionality, consider installing chrony instead.
+
+- name: Ensure systemd-timesyncd is installed
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
   tags: ntp
-- name: Change timezone Asia/Taipei
-  copy: src=/usr/share/zoneinfo/Asia/Taipei dest=/etc/localtime
+
+- name: Set timezone (configurable, defaults to UTC)
+  ansible.builtin.command: "timedatectl set-timezone {{ timezone | default('UTC') }}"
+  changed_when: true
   tags: ntp
-# XXX: run_once is useless
-- name: Write to hardware
-  command: 'hwclock -w'
-  run_once: true
+
+- name: Enable NTP synchronization via timedatectl
+  ansible.builtin.command: "timedatectl set-ntp true"
+  changed_when: true
   tags: ntp
-- name: Be sure ntp daemon is running and enabled
-  service: name=ntp state=running enabled=yes
+
+- name: Ensure systemd-timesyncd service is running
+  ansible.builtin.service:
+    name: systemd-timesyncd
+    state: started
+    enabled: yes
   tags: ntp
-- name: Check System Time
-  command: 'date'
+
+- name: Check time synchronization status
+  ansible.builtin.command: "timedatectl show --property=NTPSynchronized --value"
+  register: ntp_sync_status
+  changed_when: false
+  ignore_errors: yes
+  tags: ntp
+
+- name: Get current system time
+  ansible.builtin.command: "date"
   register: time_result
+  changed_when: false
   tags: ntp
-- debug: msg="System time {{ time_result.stdout }}}"
+
+- name: Display time synchronization status
+  ansible.builtin.debug:
+    msg: |
+      Time synchronization status:
+        - System time: {{ time_result.stdout }}
+        - NTP synchronized: {{ ntp_sync_status.stdout | default('unknown') }}
+        - Timezone: {{ timezone | default('UTC') }}
+
+      Note: Using systemd-timesyncd instead of legacy ntp daemon.
+      For full NTP server functionality, install chrony instead.
   tags: ntp
+
+# Legacy tasks removed:
+# - apt: name=ntp state=installed (conflicts with systemd-timesyncd)
+# - copy: src=/usr/share/zoneinfo/Asia/Taipei dest=/etc/localtime (use timedatectl)
+# - hwclock -w (handled automatically by systemd)

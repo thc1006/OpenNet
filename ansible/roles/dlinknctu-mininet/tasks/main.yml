@@ -1,26 +1,74 @@
-- name: Set dlinknctu-mininet
-  set_fact:
+---
+# dlinknctu-mininet role - modernized for Ubuntu 22.04+ / Debian 12+
+#
+# Changes from legacy version:
+#   - Removed poll: 0 which caused silent failures
+#   - Added proper error handling and status reporting
+#   - Added check for existing installation
+#   - Updated Ansible syntax to modern FQCN format
+#
+# Note: The dlinknctu/mininet fork (opennet branch) may have Python 2 dependencies.
+#       If installation fails, check mininet/util/install.sh for Python version issues.
+
+- name: Set dlinknctu-mininet variables
+  ansible.builtin.set_fact:
     mininet_repos: "https://github.com/dlinknctu/mininet.git"
     mininet_dir_path: "{{ home_location }}/mininet"
   tags: mininet
-- name: Clone dlinknctu-mininet
-  git:
+
+- name: Check if Mininet is already installed
+  ansible.builtin.stat:
+    path: "{{ mininet_dir_path }}"
+  register: mininet_dir
+  tags: mininet
+
+- name: Clone dlinknctu-mininet (opennet branch)
+  ansible.builtin.git:
     repo: "{{ mininet_repos }}"
     dest: "{{ mininet_dir_path }}"
     update: no
     accept_hostkey: true
     version: "opennet"
+  when: not mininet_dir.stat.exists
   tags: mininet
+
+- name: Check if Mininet is already built
+  ansible.builtin.command: "which mn"
+  register: mn_installed
+  ignore_errors: yes
+  changed_when: false
+  tags: mininet
+
 - name: Install dlinknctu-mininet
-  command: "./util/install.sh -n"
+  ansible.builtin.command: "./util/install.sh -n"
   args:
-    chdir: "{{ home_location }}/mininet"
-  poll: 0
-  retries: 3
+    chdir: "{{ mininet_dir_path }}"
+  register: mininet_install
+  ignore_errors: yes
+  when: mn_installed.rc != 0
   tags: mininet
+
 - name: Check mininet version
-  command: "mn --version"
+  ansible.builtin.command: "mn --version"
   register: mn_version
+  ignore_errors: yes
+  changed_when: false
   tags: mininet
-- debug: msg="Mininet Version {{ mn_version.stdout }}"
+
+- name: Mininet installation summary
+  ansible.builtin.debug:
+    msg: |
+      Mininet installation summary:
+        - Repository: {{ mininet_repos }}
+        - Branch: opennet
+        - Location: {{ mininet_dir_path }}
+        - Version: {{ mn_version.stdout | default('NOT INSTALLED') }}
+        - Install result: {{ 'OK' if (mininet_install is not defined or mininet_install.rc == 0) else 'FAILED' }}
+
+      Note: This uses the dlinknctu/mininet fork with OpenNet extensions.
+      If installation failed, check for Python 2/3 compatibility issues in util/install.sh.
   tags: mininet
+
+# Legacy tasks removed:
+# - poll: 0 (caused silent failures, install now runs synchronously)
+# - retries: 3 (not effective with poll: 0)
