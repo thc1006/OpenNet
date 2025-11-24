@@ -1,0 +1,24 @@
+# Fix fd-net-device linker error when lte.patch is applied
+#
+# The lte.patch adds LTE dependencies (GtpuHeader, TeidDscpMapping) to fd-net-device
+# but doesn't update the fd-net-device wscript to add 'lte' as a dependency.
+#
+# This patch fixes the linker error:
+#   undefined reference to `ns3::GtpuHeader::GetTeid() const'
+#   undefined reference to `ns3::TeidDscpMapping::GetTeidDscpMapping(unsigned int)'
+#
+# Apply with:
+#   cd /path/to/ns-allinone-3.22/ns-3.22
+#   patch -p1 < fd-net-device-lte-dep.patch
+
+--- a/src/fd-net-device/wscript
++++ b/src/fd-net-device/wscript
+@@ -106,7 +106,7 @@
+ if not bld.env['ENABLE_FDNETDEV']:
+         return
+
+-    module = bld.create_ns3_module('fd-net-device', ['network'])
++    module = bld.create_ns3_module('fd-net-device', ['network', 'lte', 'internet'])
+     module.source = [
+         'model/fd-net-device.cc',
+         'helper/fd-net-device-helper.cc',
