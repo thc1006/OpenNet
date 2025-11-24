@@ -1,0 +1,362 @@
+diff -Naur ns-3.22-orig/bindings/python/ns3modulegen.py ns-3.22-fixed/bindings/python/ns3modulegen.py
+--- ns-3.22-orig/bindings/python/ns3modulegen.py	2025-11-24 02:22:11.583753392 +0000
++++ ns-3.22-fixed/bindings/python/ns3modulegen.py	2025-11-24 02:22:12.139749686 +0000
+@@ -26,21 +26,21 @@
+ class ErrorHandler(pybindgen.settings.ErrorHandler):
+     def handle_error(self, wrapper, exception, traceback_):
+         print >> sys.stderr
+-        print >> sys.stderr, "---- location:"
++        print("---- location:", file=sys.stderr)
+         traceback.print_stack()
+-        print >> sys.stderr, "---- error:"
++        print("---- error:", file=sys.stderr)
+         traceback.print_tb(traceback_)
+         try:
+             stack = wrapper.stack_where_defined
+         except AttributeError:
+-            print >> sys.stderr, "??:??: %s / %r" % (wrapper, exception)
++            print("??:??: %s / %r" % (wrapper, exception), file=sys.stderr)
+         else:
+             stack = list(stack)
+             stack.reverse()
+             for (filename, line_number, function_name, text) in stack:
+                 file_dir = os.path.dirname(os.path.abspath(filename))
+                 if file_dir.startswith(this_script_dir):
+-                    print >> sys.stderr, "%s:%i: %r" % (os.path.join("..", "bindings", "python", os.path.basename(filename)),
++                    print("%s:%i: %r" % (os.path.join("..", "bindings", "python", os.path.basename(filename)), file=sys.stderr, end=" ")
+                                                         line_number, exception)
+                     break
+         return True
+@@ -170,7 +170,7 @@
+         except ImportError:
+             main()
+         else:
+-            print >> sys.stderr, "** running under profiler"
++            print("** running under profiler", file=sys.stderr)
+             profile.run('main()', 'ns3modulegen.pstat')
+     else:
+         main()
+diff -Naur ns-3.22-orig/bindings/python/ns3modulescan-modular.py ns-3.22-fixed/bindings/python/ns3modulescan-modular.py
+--- ns-3.22-orig/bindings/python/ns3modulescan-modular.py	2025-11-24 02:22:11.583753392 +0000
++++ ns-3.22-fixed/bindings/python/ns3modulescan-modular.py	2025-11-24 02:22:12.135749713 +0000
+@@ -106,7 +106,7 @@
+ 
+         ## classes
+         if isinstance(pygccxml_definition, class_t):
+-            print >> sys.stderr, pygccxml_definition
++            print(pygccxml_definition, file=sys.stderr)
+             # no need for helper classes to allow subclassing in Python, I think...
+             #if pygccxml_definition.name.endswith('Helper'):
+             #    global_annotations['allow_subclassing'] = 'false'
+@@ -275,7 +275,7 @@
+ 
+ if __name__ == '__main__':
+     if len(sys.argv) != 6:
+-        print "ns3modulescan-modular.py top_builddir module_path module_headers output_file_name cflags"
++        print("ns3modulescan-modular.py top_builddir module_path module_headers output_file_name cflags")
+         sys.exit(1)
+     ns3_module_scan(sys.argv[1], sys.argv[2], eval(sys.argv[3]), sys.argv[4], sys.argv[5])
+     sys.exit(0)
+diff -Naur ns-3.22-orig/bindings/python/topsort.py ns-3.22-fixed/bindings/python/topsort.py
+--- ns-3.22-orig/bindings/python/topsort.py	2025-11-24 02:22:11.583753392 +0000
++++ ns-3.22-fixed/bindings/python/topsort.py	2025-11-24 02:22:12.139749686 +0000
+@@ -142,7 +142,7 @@
+     >>> try:
+     ...     for level in iter(topsort_levels( dependency_pairs )):
+     ...         print level
+-    ... except CycleError, exc:
++    ... except CycleError as exc:
+     ...     print 'CycleError:', exc
+     [1]
+     [2]
+diff -Naur ns-3.22-orig/bindings/python/wscript ns-3.22-fixed/bindings/python/wscript
+--- ns-3.22-orig/bindings/python/wscript	2025-11-24 02:22:11.587753366 +0000
++++ ns-3.22-fixed/bindings/python/wscript	2025-11-24 02:22:12.135749713 +0000
+@@ -88,19 +88,19 @@
+ 
+     try:
+         conf.load('python')
+-    except Errors.ConfigurationError, ex:
++    except Errors.ConfigurationError as ex:
+         conf.report_optional_feature("python", "Python Bindings", False,
+                                      "The python interpreter was not found")
+         return
+     try:
+         conf.check_python_version((2,3))
+-    except Errors.ConfigurationError, ex:
++    except Errors.ConfigurationError as ex:
+         conf.report_optional_feature("python", "Python Bindings", False,
+                                      "The python found version is too low (2.3 required)")
+         return
+     try:
+         conf.check_python_headers()
+-    except Errors.ConfigurationError, ex:
++    except Errors.ConfigurationError as ex:
+         conf.report_optional_feature("python", "Python Bindings", False,
+                                      "Python library or headers missing")
+         return
+@@ -414,13 +414,13 @@
+ 
+     def run(self):
+         assert len(self.outputs) == 1
+-        outfile = file(self.outputs[0].abspath(), "w")
+-        print >> outfile, "import warnings"
+-        print >> outfile, 'warnings.warn("the ns3 module is a compatibility layer '\
++        outfile = open(self.outputs[0].abspath(), "w")
++        print("import warnings", file=outfile)
++        print('warnings.warn("the ns3 module is a compatibility layer '\, file=outfile)
+             'and should not be used in newly written code", DeprecationWarning, stacklevel=2)'
+         print >> outfile
+         for module in self.bld.env['PYTHON_MODULES_BUILT']:
+-            print >> outfile, "from ns.%s import *" % (module.replace('-', '_'))
++            print("from ns.%s import *" % (module.replace('-', '_')), file=outfile)
+         outfile.close()
+         return 0
+ 
+@@ -466,7 +466,7 @@
+                     scan_modules.append(mod.name.split('ns3-')[1])
+         else:
+             scan_modules = Options.options.apiscan.split(',')
+-        print "Modules to scan: ", scan_modules
++        print("Modules to scan: ", scan_modules)
+         for target, cflags in scan_targets:
+             group = bld.get_group(bld.current_group)
+             for module in scan_modules:
+diff -Naur ns-3.22-orig/src/visualizer/visualizer/base.py ns-3.22-fixed/src/visualizer/visualizer/base.py
+--- ns-3.22-orig/src/visualizer/visualizer/base.py	2025-11-24 02:22:11.267755499 +0000
++++ ns-3.22-fixed/src/visualizer/visualizer/base.py	2025-11-24 02:22:12.147749633 +0000
+@@ -104,13 +104,13 @@
+             continue
+         try:
+             plugin_module = __import__(name)
+-        except ImportError, ex:
+-            print >> sys.stderr, "Could not load plugin %r: %s" % (filename, str(ex))
++        except ImportError as ex:
++            print("Could not load plugin %r: %s" % (filename, str(ex)), file=sys.stderr)
+             continue
+         try:
+             plugin_func = plugin_module.register
+         except AttributeError:
+-            print >> sys.stderr, "Plugin %r has no 'register' function" % name
++            print("Plugin %r has no 'register' function" % name, file=sys.stderr)
+         else:
+             #print >> sys.stderr, "Plugin %r registered" % name
+             register_plugin(plugin_func, name, plugin_module)
+diff -Naur ns-3.22-orig/src/visualizer/visualizer/core.py ns-3.22-fixed/src/visualizer/visualizer/core.py
+--- ns-3.22-orig/src/visualizer/visualizer/core.py	2025-11-24 02:22:11.267755499 +0000
++++ ns-3.22-fixed/src/visualizer/visualizer/core.py	2025-11-24 02:22:12.147749633 +0000
+@@ -48,7 +48,7 @@
+         import svgitem
+     except ImportError:
+         svgitem = None
+-except ImportError, _import_error:
++except ImportError as _import_error:
+     import dummy_threading as threading
+ else:
+     _import_error = None
+@@ -749,13 +749,13 @@
+         self.window.show()
+ 
+     def scan_topology(self):
+-        print "scanning topology: %i nodes..." % (ns.network.NodeList.GetNNodes(),)
++        print("scanning topology: %i nodes..." % (ns.network.NodeList.GetNNodes(),))
+         graph = pygraphviz.AGraph()
+         seen_nodes = 0
+         for nodeI in range(ns.network.NodeList.GetNNodes()):
+             seen_nodes += 1
+             if seen_nodes == 100:
+-                print "scan topology... %i nodes visited (%.1f%%)" % (nodeI, 100*nodeI/ns.network.NodeList.GetNNodes())
++                print("scan topology... %i nodes visited (%.1f%%)" % (nodeI, 100*nodeI/ns.network.NodeList.GetNNodes()))
+                 seen_nodes = 0
+             node = ns.network.NodeList.GetNode(nodeI)
+             node_name = "Node %i" % nodeI
+@@ -808,7 +808,7 @@
+                                 graph.add_edge(node_name, other_node_name)
+                             self.create_link(self.get_node(nodeI), otherNodeView)
+ 
+-        print "scanning topology: calling graphviz layout"
++        print("scanning topology: calling graphviz layout")
+         graph.layout(LAYOUT_ALGORITHM)
+         for node in graph.iternodes():
+             #print node, "=>", node.attr['pos']
+@@ -820,7 +820,7 @@
+                 obj = self.channels[int(node_id)]
+             obj.set_position(pos_x, pos_y)
+ 
+-        print "scanning topology: all done."
++        print("scanning topology: all done.")
+         self.emit("topology-scanned")
+ 
+     def get_node(self, index):
+@@ -1483,7 +1483,7 @@
+     assert Visualizer.INSTANCE is None
+     if _import_error is not None:
+         import sys
+-        print >> sys.stderr, "No visualization support (%s)." % (str(_import_error),)
++        print("No visualization support (%s)." % (str(_import_error),), file=sys.stderr)
+         ns.core.Simulator.Run()
+         return
+     load_plugins()
+diff -Naur ns-3.22-orig/src/wscript ns-3.22-fixed/src/wscript
+--- ns-3.22-orig/src/wscript	2025-11-24 02:22:11.255755579 +0000
++++ ns-3.22-fixed/src/wscript	2025-11-24 02:22:12.143749660 +0000
+@@ -524,7 +524,7 @@
+             out_file_name = self.header_to_remove.abspath()
+             try:
+                 os.unlink(out_file_name)
+-            except OSError, ex:
++            except OSError as ex:
+                 if ex.errno != 2:
+                     raise
+             return 0
+@@ -616,7 +616,7 @@
+             out_file_name = self.header_to_remove.abspath()
+             try:
+                 os.unlink(out_file_name)
+-            except OSError, ex:
++            except OSError as ex:
+                 if ex.errno != 2:
+                     raise
+             return 0
+@@ -654,14 +654,14 @@
+             out_file_name = self.header_to_remove.abspath()
+             try:
+                 os.unlink(out_file_name)
+-            except OSError, ex:
++            except OSError as ex:
+                 if ex.errno != 2:
+                     raise
+             return 0
+         assert len(self.outputs) == 1
+         out_file_name = self.outputs[0].get_bld().abspath()#self.env)
+         header_files = [os.path.basename(node.abspath()) for node in self.inputs]
+-        outfile = file(out_file_name, "w")
++        outfile = open(out_file_name, "w")
+         header_files.sort()
+ 
+         print >> outfile, """
+@@ -678,11 +678,11 @@
+     #         print >> outfile, "#include \"%s-module.h\"" % dep
+ 
+         print >> outfile
+-        print >> outfile, "// Module headers:"
++        print("// Module headers:", file=outfile)
+         for header in header_files:
+-            print >> outfile, "#include \"%s\"" % (header,)
++            print("#include \"%s\"" % (header,), file=outfile)
+ 
+-        print >> outfile, "#endif"
++        print("#endif", file=outfile)
+ 
+         outfile.close()
+         return 0
+diff -Naur ns-3.22-orig/wscript ns-3.22-fixed/wscript
+--- ns-3.22-orig/wscript	2025-11-24 02:22:11.247755632 +0000
++++ ns-3.22-fixed/wscript	2025-11-24 02:22:12.135749713 +0000
+@@ -54,7 +54,7 @@
+ Configure.autoconfig = 0
+ 
+ # the following two variables are used by the target "waf dist"
+-VERSION = file("VERSION", "rt").read().strip()
++VERSION = open("VERSION", "rt").read().strip()
+ APPNAME = 'ns'
+ 
+ wutils.VERSION = VERSION
+@@ -106,14 +106,14 @@
+     # Print the list of module names in 3 columns.
+     i = 1
+     for name in names:
+-        print name.ljust(25),
++        print(name.ljust(25), end=" ")
+         if i == 3:
+-                print
++                print()
+                 i = 0
+         i = i+1
+ 
+     if i != 1:
+-        print
++        print()
+ 
+ def options(opt):
+     # options provided by the modules
+@@ -531,11 +531,11 @@
+             conf.env.append_value(confvar, value)
+ 
+     # Write a summary of optional features status
+-    print "---- Summary of optional NS-3 features:"
+-    print "%-30s: %s%s%s" % ("Build profile", Logs.colors('GREEN'),
++    print("---- Summary of optional NS-3 features:")
++    print("%-30s: %s%s%s" % ("Build profile", Logs.colors('GREEN'), end=" ")
+                              Options.options.build_profile, Logs.colors('NORMAL'))
+     bld = wutils.bld
+-    print "%-30s: %s%s%s" % ("Build directory", Logs.colors('GREEN'),
++    print("%-30s: %s%s%s" % ("Build directory", Logs.colors('GREEN'), end=" ")
+                              Context.out_dir, Logs.colors('NORMAL'))
+     
+     
+@@ -546,7 +546,7 @@
+         else:
+             status = 'not enabled (%s)' % reason_not_enabled
+             color = 'RED'
+-        print "%-30s: %s%s%s" % (caption, Logs.colors(color), status, Logs.colors('NORMAL'))
++        print("%-30s: %s%s%s" % (caption, Logs.colors(color), status, Logs.colors('NORMAL')))
+ 
+ 
+ class SuidBuild_task(Task.Task):
+@@ -558,14 +558,14 @@
+         self.m_display = 'build-suid'
+         try:
+             program_obj = wutils.find_program(self.generator.name, self.generator.env)
+-        except ValueError, ex:
++        except ValueError as ex:
+             raise WafError(str(ex))
+         program_node = program_obj.path.find_or_declare(program_obj.target)
+         self.filename = program_node.get_bld().abspath()
+ 
+ 
+     def run(self):
+-        print >> sys.stderr, 'setting suid bit on executable ' + self.filename
++        print('setting suid bit on executable ' + self.filename, file=sys.stderr)
+         if subprocess.Popen(['sudo', 'chown', 'root', self.filename]).wait():
+             return 1
+         if subprocess.Popen(['sudo', 'chmod', 'u+s', self.filename]).wait():
+@@ -900,8 +900,8 @@
+     if (env['PRINT_BUILT_MODULES_AT_END']):
+ 
+         # Print the list of built modules.
+-        print
+-        print 'Modules built:'
++        print()
++        print('Modules built:')
+         names_without_prefix = []
+         for name in env['NS3_ENABLED_MODULES']:
+             name1 = name[len('ns3-'):]
+@@ -909,13 +909,13 @@
+                 name1 += " (no Python)"
+             names_without_prefix.append(name1)
+         print_module_names(names_without_prefix)
+-        print
++        print()
+ 
+         # Print the list of enabled modules that were not built.
+         if env['MODULES_NOT_BUILT']:
+-            print 'Modules not built (see ns-3 tutorial for explanation):'
++            print('Modules not built (see ns-3 tutorial for explanation):')
+             print_module_names(env['MODULES_NOT_BUILT'])
+-            print
++            print()
+ 
+         # Set this so that the lists won't be printed until the next
+         # build is done.
+@@ -1149,8 +1149,8 @@
+     cmd = 'sphinx'
+ 
+     def sphinx_build(self, path):
+-        print
+-        print "[waf] Building sphinx docs for " + path
++        print()
++        print("[waf] Building sphinx docs for " + path)
+         if subprocess.Popen(["make", "SPHINXOPTS=-N", "-k",
+                              "html", "singlehtml", "latexpdf" ],
+                             cwd=path).wait() :
