@@ -42,12 +42,10 @@ from mininet.link import Intf, Link
 from mininet.node import Switch, Node
 from mininet.util import quietRun, moveIntf, errRun
 
-import ns.core
-import ns.network
-import ns.tap_bridge
-import ns.csma
-import ns.wifi
-import ns.mobility
+# ns-3.41 Cppyy bindings use a single namespace import
+# Old style: import ns.core, import ns.network, etc. (ns-3.22 Pybindgen)
+# New style: from ns import ns (ns-3.37+ Cppyy)
+from ns import ns
 
 # Default duration of ns-3 simulation thread. You can freely modify this value.
 
@@ -64,7 +62,8 @@ ns.core.GlobalValue.Bind( "SimulatorImplementationType", ns.core.StringValue( "n
 # when it runs in simulation mode. However, when it runs in emulation mode and exchanges packets with the real
 # world, bit errors may occur in the real world, so we need to enable checksum computation.
 
-ns.core.GlobalValue.Bind( "ChecksumEnabled", ns.core.BooleanValue ( "true" ) )
+# ns-3.41 Cppyy requires Python bool, not string "true"
+ns.core.GlobalValue.Bind( "ChecksumEnabled", ns.core.BooleanValue( True ) )
 
 # Arrays which track all created TBIntf objects and Mininet nodes which has assigned an underlying ns-3 node.
 

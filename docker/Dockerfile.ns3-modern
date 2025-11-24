@@ -112,9 +112,35 @@ RUN cd /root/mininet && \
 RUN sed -i "s/if line is '':/if line == '':/" /root/mininet/mininet/cli.py && \
     sed -i "s/if key is not '':/if key != '':/" /root/mininet/mininet/cli.py
 
+# Clone OpenNet mininet fork to get cluster module
+RUN git clone --branch opennet https://github.com/dlinknctu/mininet.git /root/opennet-mininet || \
+    echo "WARNING: Failed to clone OpenNet mininet fork."
+
+# Copy cluster module from opennet-mininet fork and convert to Python 3
+RUN if [ -d /root/opennet-mininet/mininet/cluster ]; then \
+        echo "Installing cluster module from OpenNet fork..." && \
+        cp -r /root/opennet-mininet/mininet/cluster /root/mininet/mininet/ && \
+        python3 -m lib2to3 -w -n --no-diffs /root/mininet/mininet/cluster/ && \
+        echo "Cluster module installed and converted to Python 3."; \
+    else \
+        echo "WARNING: cluster module not found in opennet-mininet fork."; \
+    fi
+
 # Copy OpenNet repository
 WORKDIR /opt/opennet
 COPY . /opt/opennet
+
+# Install OpenNet Python 3 modules into Mininet
+RUN if [ -d /opt/opennet/mininet-py3 ]; then \
+        echo "Installing OpenNet Python 3 modules..." && \
+        cp /opt/opennet/mininet-py3/ns3.py /root/mininet/mininet/ && \
+        cp /opt/opennet/mininet-py3/wifi.py /root/mininet/mininet/ && \
+        cp /opt/opennet/mininet-py3/lte.py /root/mininet/mininet/ && \
+        cp /opt/opennet/mininet-py3/opennet.py /root/mininet/mininet/ && \
+        cp /opt/opennet/mininet-py3/opennet-agent.py /root/mininet/bin/ 2>/dev/null || true && \
+        chmod +x /root/mininet/bin/opennet-agent.py 2>/dev/null || true && \
+        echo "OpenNet modules installed."; \
+    fi
 
 # Set up environment
 ENV PYTHONPATH="/root/mininet:/root/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}/build/bindings/python:${PYTHONPATH}"

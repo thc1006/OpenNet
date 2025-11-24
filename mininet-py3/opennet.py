@@ -4,9 +4,8 @@ import os
 import socket
 import fcntl
 import struct
-import ns.netanim
-import ns.csma
-import ns.wifi
+# ns-3.41 Cppyy bindings use single namespace import
+from ns import ns
 
 def getIntfAddr (intf):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
