@@ -16,6 +16,8 @@ git config --global user.name "thc1006"
 git config --global user.email "84045975+thc1006@users.noreply.github.com"
 ```
 
+> In now loacl environment we have Docker and Kubernetes you can use for development, testing, and refactoring.
+
 OpenNet is an SDN emulator / simulator that:
 
 - Integrates **Mininet** (Python‑based SDN emulator) and **ns‑3** (C++ network simulator) into a single environment.
