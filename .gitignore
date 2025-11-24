@@ -7,3 +7,5 @@ mininet/*
 *.zip
 *.deb
 opennet_help.txt
+__pycache__/
+*.pyc
