@@ -9,3 +9,7 @@ mininet/*
 opennet_help.txt
 __pycache__/
 *.pyc
+
+# Claude Code local configuration (keep local only)
+CLAUDE.md
+.claude/
