@@ -511,7 +511,7 @@ class SimpleSegment( object ):
             allNodes.append( node )
         # Create ns-3 device.
         device = ns.network.SimpleNetDevice()
-        device.SetAddress (ns.network.Mac48Address.Allocate ())
+        device.SetAddress (ns.network.Mac48Address.Allocate().ConvertTo())
         # Connect this device to the segment's channel.
         device.SetChannel(self.channel)
         # Add this device to the ns-3 node.
@@ -583,12 +583,13 @@ class CSMASegment( object ):
         # Create ns-3 device.
         device = ns.csma.CsmaNetDevice()
         # Create queue used in the device.
-        queue = ns.network.DropTailQueue()
+        # ns-3.41: DropTailQueue is a template class, use CreateObject
+        queue = ns.CreateObject("DropTailQueue<Packet>")
         # Connect this device to the segment's channel.
         device.Attach(self.channel)
         # Set ns-3 device to use created queue.
         device.SetQueue(queue)
-        device.SetAddress (ns.network.Mac48Address.Allocate ())
+        device.SetAddress (ns.network.Mac48Address.Allocate().ConvertTo())
         # Add this device to the ns-3 node.
         node.nsNode.AddDevice(device)
         # If port number is not specified...
@@ -638,15 +639,17 @@ class WIFISegment( object ):
        Only Ap and WDS devices support SendFrom()."""
     def __init__( self, enableQos=True ):
         # Helpers instantiation.
-        self.wifihelper = ns.wifi.WifiHelper.Default()
-        self.wifihelper.SetStandard (ns.wifi.WIFI_PHY_STANDARD_80211g)
-        self.phyhelper = ns.wifi.YansWifiPhyHelper.Default()
+        # ns-3.41 API: WifiHelper() and YansWifiPhyHelper() no longer have Default()
+        # WIFI_PHY_STANDARD_80211g is now WIFI_STANDARD_80211g
+        # QosWifiMacHelper/NqosWifiMacHelper replaced by WifiMacHelper
+        self.wifihelper = ns.wifi.WifiHelper()
+        self.wifihelper.SetStandard (ns.wifi.WIFI_STANDARD_80211g)
+        self.phyhelper = ns.wifi.YansWifiPhyHelper()
         self.channelhelper = ns.wifi.YansWifiChannelHelper.Default()
         self.phyhelper.SetChannel ( self.channelhelper.Create() )
-        if enableQos:
-            self.machelper = ns.wifi.QosWifiMacHelper.Default()
-        else:
-            self.machelper = ns.wifi.NqosWifiMacHelper.Default()
+        # ns-3.41: QosWifiMacHelper/NqosWifiMacHelper merged into WifiMacHelper
+        # QoS is now handled via SetType parameters or WifiHelper configuration
+        self.machelper = ns.wifi.WifiMacHelper()
 
     def add( self, node, port=None, intfName=None, mode=None ):
         """Connect Mininet node to the segment.

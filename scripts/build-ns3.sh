@@ -8,6 +8,7 @@
 #   --download-only    Only download and extract ns-3, don't build
 #   --skip-download    Skip download, assume ns-3 is already extracted
 #   --disable-python   Build without Python bindings (faster, fewer deps)
+#   --enable-lte       Apply LTE patches with circular dependency fix
 #   --clean            Remove existing ns-3 directory before starting
 #   --dest DIR         Install to DIR instead of project directory
 #   --help             Show this help message
@@ -38,6 +39,7 @@ PATCH_DIR="${PROJECT_DIR}/ns3-patch"
 DOWNLOAD_ONLY=false
 SKIP_DOWNLOAD=false
 DISABLE_PYTHON=false
+ENABLE_LTE=false
 CLEAN_BUILD=false
 DEST_DIR=""
 
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --disable-python)
       DISABLE_PYTHON=true
+      shift
+      ;;
+    --enable-lte)
+      ENABLE_LTE=true
       shift
       ;;
     --clean)
@@ -101,6 +107,7 @@ echo "Options:"
 echo "  Download only: ${DOWNLOAD_ONLY}"
 echo "  Skip download: ${SKIP_DOWNLOAD}"
 echo "  Disable Python: ${DISABLE_PYTHON}"
+echo "  Enable LTE: ${ENABLE_LTE}"
 echo "  Clean build: ${CLEAN_BUILD}"
 echo
 
@@ -159,17 +166,25 @@ fi
 # Step 2: Apply patches
 echo "[2/4] Applying OpenNet patches..."
 
-# LTE patches commented out due to circular dependency issue
-# fd-net-device <-> lte creates a dependency cycle in waf
-# TODO: Fix by moving TeidDscpMapping to a shared module
+# Core patches (always applied)
 PATCHES=(
   "gcc11-compat.patch"
   "animation-interface.patch"
   "netanim-python.patch"
   "sta-wifi-scan.patch"
-  # "lte.patch"
-  # "fd-net-device-lte-dep.patch"
 )
+
+# LTE patches (optional, requires circular dependency fix)
+# Use --enable-lte to apply these patches
+if [[ "${ENABLE_LTE}" == "true" ]]; then
+  echo "  LTE patches enabled - applying with circular dependency fix"
+  PATCHES+=(
+    "lte.patch"
+    "lte-circular-dependency-fix.patch"
+  )
+else
+  echo "  LTE patches disabled (use --enable-lte to enable)"
+fi
 
 cd "${NS3_DIR}"
 for patch_file in "${PATCHES[@]}"; do

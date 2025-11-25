@@ -1,0 +1,986 @@
+# Fix for LTE circular dependency in OpenNet
+#
+# Problem:
+#   The lte.patch adds DSCP marking functionality to fd-net-device that requires
+#   TeidDscpMapping and GtpuHeader from the lte module. However:
+#   - lte depends on fd-net-device (when ENABLE_EMU is true)
+#   - fd-net-device depends on lte (for TeidDscpMapping, GtpuHeader)
+#   This creates a circular dependency: fd-net-device <-> lte
+#
+# Solution:
+#   Create a new lightweight 'lte-qos' module containing only:
+#   - TeidDscpMapping (TEID to DSCP mapping for QoS)
+#   - GtpuHeader (GTP-U header parsing - needed by fd-net-device)
+#   - EpsBearer (QCI definitions - needed by TeidDscpMapping)
+#
+#   Dependency chain becomes:
+#   - lte-qos depends on: [core, network, internet]
+#   - fd-net-device depends on: [network, lte-qos] (no lte dependency)
+#   - lte depends on: [core, network, spectrum, ..., fd-net-device, lte-qos]
+#
+#   This breaks the cycle because lte-qos has no dependency on fd-net-device or lte.
+#
+# Apply AFTER lte.patch with:
+#   cd /path/to/ns-allinone-3.22/ns-3.22
+#   patch -p1 < lte-circular-dependency-fix.patch
+#
+# Author: Claude Code (OpenNet modernization project)
+# Date: 2025-11-24
+
+# -----------------------------------------------------------------------------
+# Part 1: Create the new lte-qos module
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/lte-qos/wscript b/src/lte-qos/wscript
+--- a/src/lte-qos/wscript	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/wscript	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,34 @@
++## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
++#
++# lte-qos module: Lightweight QoS utilities for LTE/GTP-U processing
++#
++# This module exists to break the circular dependency between lte and fd-net-device.
++# It contains ONLY the classes needed by fd-net-device for DSCP marking:
++#   - TeidDscpMapping: Maps GTP-U TEID to DSCP values
++#   - GtpuHeader: GTP-U header parsing
++#   - EpsBearer: QCI class definitions
++#
++
++def build(bld):
++    # Dependencies: core (Singleton, logging), network (Header), internet (Ipv4Header)
++    module = bld.create_ns3_module('lte-qos', ['core', 'network', 'internet'])
++    module.source = [
++        'model/eps-bearer.cc',
++        'model/epc-gtpu-header.cc',
++        'model/teid-dscp-mapping.cc',
++    ]
++
++    headers = bld(features='ns3header')
++    headers.module = 'lte-qos'
++    headers.source = [
++        'model/eps-bearer.h',
++        'model/epc-gtpu-header.h',
++        'model/teid-dscp-mapping.h',
++    ]
++
++    if bld.env['ENABLE_EXAMPLES']:
++        bld.recurse('examples')
++
++    bld.ns3_python_bindings()
++
+
+diff -rupN a/src/lte-qos/examples/wscript b/src/lte-qos/examples/wscript
+--- a/src/lte-qos/examples/wscript	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/examples/wscript	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,5 @@
++## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
++
++def build(bld):
++    # No examples for lte-qos module (it's a utility module)
++    pass
+
+# -----------------------------------------------------------------------------
+# Part 2: Copy EpsBearer to lte-qos (simplified version without lte dependencies)
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/lte-qos/model/eps-bearer.h b/src/lte-qos/model/eps-bearer.h
+--- a/src/lte-qos/model/eps-bearer.h	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/eps-bearer.h	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,135 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2011 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ * Author: Nicola Baldo <nbaldo@cttc.es>
++ *         (Copied to lte-qos module for circular dependency fix)
++ */
++
++#ifndef LTE_QOS_EPS_BEARER_H
++#define LTE_QOS_EPS_BEARER_H
++
++#include <ns3/object-base.h>
++
++namespace ns3 {
++
++/**
++ * 3GPP TS 36.413 9.2.1.18 GBR QoS Information
++ */
++struct GbrQosInformation
++{
++  uint64_t gbrDl;  /**< Guaranteed Bit Rate (bit/s) in downlink */
++  uint64_t gbrUl;  /**< Guaranteed Bit Rate (bit/s) in uplink */
++  uint64_t mbrDl;  /**< Maximum Bit Rate (bit/s) in downlink */
++  uint64_t mbrUl;  /**< Maximum Bit Rate (bit/s) in uplink */
++
++  GbrQosInformation ();
++};
++
++/**
++ * 3GPP TS 36.413 9.2.1.15 Allocation and Retention Priority
++ */
++struct AllocationRetentionPriority
++{
++  uint8_t priorityLevel;     /**< 1-15; 1 = highest */
++  bool preemptionCapability; /**< true if bearer can preempt others */
++  bool preemptionVulnerability; /**< true if bearer can be preempted */
++
++  AllocationRetentionPriority ();
++};
++
++/**
++ * EpsBearer contains QoS parameters for an EPS bearer
++ */
++struct EpsBearer : public ObjectBase
++{
++  static TypeId GetTypeId (void);
++  TypeId GetInstanceTypeId (void) const;
++
++  /**
++   * QoS Class Indicator. See 3GPP TS 23.203 section 6.1.7.2.
++   */
++  enum Qci
++  {
++    GBR_CONV_VOICE          = 1,
++    GBR_CONV_VIDEO          = 2,
++    GBR_GAMING              = 3,
++    GBR_NON_CONV_VIDEO      = 4,
++    NGBR_IMS                = 5,
++    NGBR_VIDEO_TCP_OPERATOR = 6,
++    NGBR_VOICE_VIDEO_GAMING = 7,
++    NGBR_VIDEO_TCP_PREMIUM  = 8,
++    NGBR_VIDEO_TCP_DEFAULT  = 9,
++  };
++
++  EpsBearer ();
++  EpsBearer (Qci x);
++  EpsBearer (Qci x, GbrQosInformation y);
++
++  Qci qci;
++  GbrQosInformation gbrQosInfo;
++  AllocationRetentionPriority arp;
++
++  /**
++   * \return true if bearer is a GBR bearer
++   */
++  bool IsGbr () const;
++
++  /**
++   * \return PDB (Packet Delay Budget) in ms
++   */
++  uint16_t GetPacketDelayBudgetMs () const;
++
++  /**
++   * \return PELR (Packet Error Loss Rate)
++   */
++  double GetPacketErrorLossRate () const;
++};
++
++} // namespace ns3
++
++#endif // LTE_QOS_EPS_BEARER_H
+
+diff -rupN a/src/lte-qos/model/eps-bearer.cc b/src/lte-qos/model/eps-bearer.cc
+--- a/src/lte-qos/model/eps-bearer.cc	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/eps-bearer.cc	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,152 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2011 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ * Author: Nicola Baldo <nbaldo@cttc.es>
++ *         (Copied to lte-qos module for circular dependency fix)
++ */
++
++#include "eps-bearer.h"
++#include <ns3/fatal-error.h>
++
++namespace ns3 {
++
++GbrQosInformation::GbrQosInformation ()
++  : gbrDl (0),
++    gbrUl (0),
++    mbrDl (0),
++    mbrUl (0)
++{
++}
++
++AllocationRetentionPriority::AllocationRetentionPriority ()
++  : priorityLevel (0),
++    preemptionCapability (false),
++    preemptionVulnerability (false)
++{
++}
++
++NS_OBJECT_ENSURE_REGISTERED (EpsBearer);
++
++TypeId
++EpsBearer::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::EpsBearer")
++    .SetParent<ObjectBase> ()
++    .SetGroupName ("LteQos")
++    .AddConstructor<EpsBearer> ()
++  ;
++  return tid;
++}
++
++TypeId
++EpsBearer::GetInstanceTypeId (void) const
++{
++  return EpsBearer::GetTypeId ();
++}
++
++EpsBearer::EpsBearer ()
++  : qci (NGBR_VIDEO_TCP_DEFAULT)
++{
++}
++
++EpsBearer::EpsBearer (Qci x)
++  : qci (x)
++{
++}
++
++EpsBearer::EpsBearer (Qci x, GbrQosInformation y)
++  : qci (x),
++    gbrQosInfo (y)
++{
++}
++
++bool
++EpsBearer::IsGbr () const
++{
++  // 3GPP TS 23.203 section 6.1.7.2
++  switch (qci)
++    {
++    case GBR_CONV_VOICE:
++    case GBR_CONV_VIDEO:
++    case GBR_GAMING:
++    case GBR_NON_CONV_VIDEO:
++      return true;
++    case NGBR_IMS:
++    case NGBR_VIDEO_TCP_OPERATOR:
++    case NGBR_VOICE_VIDEO_GAMING:
++    case NGBR_VIDEO_TCP_PREMIUM:
++    case NGBR_VIDEO_TCP_DEFAULT:
++      return false;
++    default:
++      NS_FATAL_ERROR ("unknown QCI value " << qci);
++      return false;
++    }
++}
++
++uint16_t
++EpsBearer::GetPacketDelayBudgetMs () const
++{
++  // 3GPP TS 23.203 Table 6.1.7
++  switch (qci)
++    {
++    case GBR_CONV_VOICE:
++      return 100;
++    case GBR_CONV_VIDEO:
++      return 150;
++    case GBR_GAMING:
++      return 50;
++    case GBR_NON_CONV_VIDEO:
++      return 300;
++    case NGBR_IMS:
++      return 100;
++    case NGBR_VIDEO_TCP_OPERATOR:
++      return 300;
++    case NGBR_VOICE_VIDEO_GAMING:
++      return 100;
++    case NGBR_VIDEO_TCP_PREMIUM:
++      return 300;
++    case NGBR_VIDEO_TCP_DEFAULT:
++      return 300;
++    default:
++      NS_FATAL_ERROR ("unknown QCI value " << qci);
++      return 0;
++    }
++}
++
++double
++EpsBearer::GetPacketErrorLossRate () const
++{
++  // 3GPP TS 23.203 Table 6.1.7
++  switch (qci)
++    {
++    case GBR_CONV_VOICE:
++    case GBR_CONV_VIDEO:
++    case GBR_GAMING:
++      return 1.0e-2;
++    case GBR_NON_CONV_VIDEO:
++    case NGBR_IMS:
++    case NGBR_VIDEO_TCP_OPERATOR:
++    case NGBR_VOICE_VIDEO_GAMING:
++    case NGBR_VIDEO_TCP_PREMIUM:
++    case NGBR_VIDEO_TCP_DEFAULT:
++      return 1.0e-6;
++    default:
++      NS_FATAL_ERROR ("unknown QCI value " << qci);
++      return 0;
++    }
++}
++
++} // namespace ns3
+
+# -----------------------------------------------------------------------------
+# Part 3: Copy GtpuHeader to lte-qos
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/lte-qos/model/epc-gtpu-header.h b/src/lte-qos/model/epc-gtpu-header.h
+--- a/src/lte-qos/model/epc-gtpu-header.h	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/epc-gtpu-header.h	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,119 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2011 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ * Author: Jaume Nin <jnin@cttc.cat>
++ *         (Copied to lte-qos module for circular dependency fix)
++ */
++
++#ifndef LTE_QOS_GTPU_HEADER_H
++#define LTE_QOS_GTPU_HEADER_H
++
++#include <ns3/ptr.h>
++#include <ns3/header.h>
++
++namespace ns3 {
++
++/**
++ * GTP-U header according to 3GPP TS 29.060
++ */
++class GtpuHeader : public Header
++{
++public:
++  static TypeId GetTypeId (void);
++  GtpuHeader ();
++  virtual ~GtpuHeader ();
++
++  virtual TypeId GetInstanceTypeId (void) const;
++  virtual uint32_t GetSerializedSize (void) const;
++  virtual void Serialize (Buffer::Iterator start) const;
++  virtual uint32_t Deserialize (Buffer::Iterator start);
++  virtual void Print (std::ostream &os) const;
++
++  bool GetExtensionHeaderFlag () const;
++  uint16_t GetLength () const;
++  uint8_t GetMessageType () const;
++  uint8_t GetNPduNumber () const;
++  bool GetNPduNumberFlag () const;
++  uint8_t GetNextExtensionType () const;
++  bool GetProtocolType () const;
++  uint16_t GetSequenceNumber () const;
++  bool GetSequenceNumberFlag () const;
++  uint32_t GetTeid () const;
++  uint8_t GetVersion () const;
++
++  void SetExtensionHeaderFlag (bool m_extensionHeaderFlag);
++  void SetLength (uint16_t m_length);
++  void SetMessageType (uint8_t m_messageType);
++  void SetNPduNumber (uint8_t m_nPduNumber);
++  void SetNPduNumberFlag (bool m_nPduNumberFlag);
++  void SetNextExtensionType (uint8_t m_nextExtensionType);
++  void SetProtocolType (bool m_protocolType);
++  void SetSequenceNumber (uint16_t m_sequenceNumber);
++  void SetSequenceNumberFlag (bool m_sequenceNumberFlag);
++  void SetTeid (uint32_t m_teid);
++  void SetVersion (uint8_t m_version);
++
++  bool operator == (const GtpuHeader& b) const;
++
++private:
++  /**
++   * Version field (3 bits, value 1)
++   */
++  uint8_t m_version;
++  /**
++   * Protocol type (1 bit, 1 = GTP, 0 = GTP')
++   */
++  bool m_protocolType;
++  /**
++   * Extension header flag (1 bit)
++   */
++  bool m_extensionHeaderFlag;
++  /**
++   * Sequence number flag (1 bit)
++   */
++  bool m_sequenceNumberFlag;
++  /**
++   * N-PDU number flag (1 bit)
++   */
++  bool m_nPduNumberFlag;
++  /**
++   * Message type (8 bits)
++   */
++  uint8_t m_messageType;
++  /**
++   * Length (16 bits)
++   */
++  uint16_t m_length;
++  /**
++   * TEID (32 bits)
++   */
++  uint32_t m_teid;
++  /**
++   * Sequence number (16 bits, optional)
++   */
++  uint16_t m_sequenceNumber;
++  /**
++   * N-PDU number (8 bits, optional)
++   */
++  uint8_t m_nPduNumber;
++  /**
++   * Next extension header type (8 bits, optional)
++   */
++  uint8_t m_nextExtensionType;
++};
++
++} // namespace ns3
++
++#endif // LTE_QOS_GTPU_HEADER_H
+
+diff -rupN a/src/lte-qos/model/epc-gtpu-header.cc b/src/lte-qos/model/epc-gtpu-header.cc
+--- a/src/lte-qos/model/epc-gtpu-header.cc	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/epc-gtpu-header.cc	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,242 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2011 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ * Author: Jaume Nin <jnin@cttc.cat>
++ *         (Copied to lte-qos module for circular dependency fix)
++ */
++
++#include "epc-gtpu-header.h"
++#include <ns3/log.h>
++
++namespace ns3 {
++
++NS_LOG_COMPONENT_DEFINE ("GtpuHeader");
++
++NS_OBJECT_ENSURE_REGISTERED (GtpuHeader);
++
++TypeId
++GtpuHeader::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::GtpuHeader")
++    .SetParent<Header> ()
++    .SetGroupName ("LteQos")
++    .AddConstructor<GtpuHeader> ()
++  ;
++  return tid;
++}
++
++GtpuHeader::GtpuHeader ()
++  : m_version (1),
++    m_protocolType (true),
++    m_extensionHeaderFlag (false),
++    m_sequenceNumberFlag (false),
++    m_nPduNumberFlag (false),
++    m_messageType (0xff),
++    m_length (0),
++    m_teid (0),
++    m_sequenceNumber (0),
++    m_nPduNumber (0),
++    m_nextExtensionType (0)
++{
++}
++
++GtpuHeader::~GtpuHeader ()
++{
++}
++
++TypeId
++GtpuHeader::GetInstanceTypeId (void) const
++{
++  return GetTypeId ();
++}
++
++uint32_t
++GtpuHeader::GetSerializedSize (void) const
++{
++  // Minimum GTP-U header size is 8 bytes
++  // Optional fields add 4 bytes (seq, npdu, next ext type)
++  if (m_extensionHeaderFlag || m_sequenceNumberFlag || m_nPduNumberFlag)
++    {
++      return 12;
++    }
++  return 8;
++}
++
++void
++GtpuHeader::Serialize (Buffer::Iterator start) const
++{
++  Buffer::Iterator i = start;
++
++  // First byte: version (3), PT (1), spare (1), E (1), S (1), PN (1)
++  uint8_t firstByte = 0;
++  firstByte |= (m_version << 5);
++  firstByte |= (m_protocolType ? (1 << 4) : 0);
++  firstByte |= (m_extensionHeaderFlag ? (1 << 2) : 0);
++  firstByte |= (m_sequenceNumberFlag ? (1 << 1) : 0);
++  firstByte |= (m_nPduNumberFlag ? 1 : 0);
++  i.WriteU8 (firstByte);
++
++  i.WriteU8 (m_messageType);
++  i.WriteHtonU16 (m_length);
++  i.WriteHtonU32 (m_teid);
++
++  if (m_extensionHeaderFlag || m_sequenceNumberFlag || m_nPduNumberFlag)
++    {
++      i.WriteHtonU16 (m_sequenceNumber);
++      i.WriteU8 (m_nPduNumber);
++      i.WriteU8 (m_nextExtensionType);
++    }
++}
++
++uint32_t
++GtpuHeader::Deserialize (Buffer::Iterator start)
++{
++  Buffer::Iterator i = start;
++
++  uint8_t firstByte = i.ReadU8 ();
++  m_version = (firstByte >> 5) & 0x07;
++  m_protocolType = (firstByte & (1 << 4)) ? true : false;
++  m_extensionHeaderFlag = (firstByte & (1 << 2)) ? true : false;
++  m_sequenceNumberFlag = (firstByte & (1 << 1)) ? true : false;
++  m_nPduNumberFlag = (firstByte & 1) ? true : false;
++
++  m_messageType = i.ReadU8 ();
++  m_length = i.ReadNtohU16 ();
++  m_teid = i.ReadNtohU32 ();
++
++  if (m_extensionHeaderFlag || m_sequenceNumberFlag || m_nPduNumberFlag)
++    {
++      m_sequenceNumber = i.ReadNtohU16 ();
++      m_nPduNumber = i.ReadU8 ();
++      m_nextExtensionType = i.ReadU8 ();
++      return 12;
++    }
++  return 8;
++}
++
++void
++GtpuHeader::Print (std::ostream &os) const
++{
++  os << "version=" << (uint16_t) m_version
++     << " protocolType=" << m_protocolType
++     << " extensionHeaderFlag=" << m_extensionHeaderFlag
++     << " sequenceNumberFlag=" << m_sequenceNumberFlag
++     << " nPduNumberFlag=" << m_nPduNumberFlag
++     << " messageType=" << (uint16_t) m_messageType
++     << " length=" << m_length
++     << " teid=" << m_teid;
++  if (m_extensionHeaderFlag || m_sequenceNumberFlag || m_nPduNumberFlag)
++    {
++      os << " sequenceNumber=" << m_sequenceNumber
++         << " nPduNumber=" << (uint16_t) m_nPduNumber
++         << " nextExtensionType=" << (uint16_t) m_nextExtensionType;
++    }
++}
++
++bool
++GtpuHeader::GetExtensionHeaderFlag () const { return m_extensionHeaderFlag; }
++uint16_t
++GtpuHeader::GetLength () const { return m_length; }
++uint8_t
++GtpuHeader::GetMessageType () const { return m_messageType; }
++uint8_t
++GtpuHeader::GetNPduNumber () const { return m_nPduNumber; }
++bool
++GtpuHeader::GetNPduNumberFlag () const { return m_nPduNumberFlag; }
++uint8_t
++GtpuHeader::GetNextExtensionType () const { return m_nextExtensionType; }
++bool
++GtpuHeader::GetProtocolType () const { return m_protocolType; }
++uint16_t
++GtpuHeader::GetSequenceNumber () const { return m_sequenceNumber; }
++bool
++GtpuHeader::GetSequenceNumberFlag () const { return m_sequenceNumberFlag; }
++uint32_t
++GtpuHeader::GetTeid () const { return m_teid; }
++uint8_t
++GtpuHeader::GetVersion () const { return m_version; }
++
++void
++GtpuHeader::SetExtensionHeaderFlag (bool f) { m_extensionHeaderFlag = f; }
++void
++GtpuHeader::SetLength (uint16_t l) { m_length = l; }
++void
++GtpuHeader::SetMessageType (uint8_t t) { m_messageType = t; }
++void
++GtpuHeader::SetNPduNumber (uint8_t n) { m_nPduNumber = n; }
++void
++GtpuHeader::SetNPduNumberFlag (bool f) { m_nPduNumberFlag = f; }
++void
++GtpuHeader::SetNextExtensionType (uint8_t t) { m_nextExtensionType = t; }
++void
++GtpuHeader::SetProtocolType (bool t) { m_protocolType = t; }
++void
++GtpuHeader::SetSequenceNumber (uint16_t n) { m_sequenceNumber = n; }
++void
++GtpuHeader::SetSequenceNumberFlag (bool f) { m_sequenceNumberFlag = f; }
++void
++GtpuHeader::SetTeid (uint32_t t) { m_teid = t; }
++void
++GtpuHeader::SetVersion (uint8_t v) { m_version = v; }
++
++bool
++GtpuHeader::operator == (const GtpuHeader& b) const
++{
++  return (m_version == b.m_version
++          && m_protocolType == b.m_protocolType
++          && m_extensionHeaderFlag == b.m_extensionHeaderFlag
++          && m_sequenceNumberFlag == b.m_sequenceNumberFlag
++          && m_nPduNumberFlag == b.m_nPduNumberFlag
++          && m_messageType == b.m_messageType
++          && m_length == b.m_length
++          && m_teid == b.m_teid
++          && m_sequenceNumber == b.m_sequenceNumber
++          && m_nPduNumber == b.m_nPduNumber
++          && m_nextExtensionType == b.m_nextExtensionType);
++}
++
++} // namespace ns3
+
+# -----------------------------------------------------------------------------
+# Part 4: Copy TeidDscpMapping to lte-qos (modified to use local eps-bearer.h)
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/lte-qos/model/teid-dscp-mapping.h b/src/lte-qos/model/teid-dscp-mapping.h
+--- a/src/lte-qos/model/teid-dscp-mapping.h	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/teid-dscp-mapping.h	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,43 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * TeidDscpMapping: Maps GTP-U TEID to DSCP values for QoS marking
++ *
++ * This is part of the lte-qos module, separated from lte to break
++ * the circular dependency between lte and fd-net-device.
++ */
++
++#ifndef TEID_DSCP_MAPPING_H
++#define TEID_DSCP_MAPPING_H
++
++#include <stdint.h>
++#include "ns3/ipv4-header.h"
++#include "eps-bearer.h"
++
++namespace ns3 {
++
++/**
++ * \brief Namespace for TEID to DSCP mapping utilities
++ *
++ * This namespace provides functions to map GTP-U TEIDs (Tunnel Endpoint IDs)
++ * to DSCP (Differentiated Services Code Point) values for QoS marking.
++ */
++namespace TeidDscpMapping {
++
++  /**
++   * Set mapping from TEID to DSCP value (direct)
++   */
++  void SetTeidDscpMapping (uint32_t teid, Ipv4Header::DscpType dscp);
++
++  /**
++   * Set mapping from TEID to DSCP value (via QCI)
++   */
++  void SetTeidDscpMapping (uint32_t teid, EpsBearer::Qci qci);
++
++  /**
++   * Get DSCP value for a given TEID
++   */
++  Ipv4Header::DscpType GetTeidDscpMapping (uint32_t teid);
++
++}
++
++}
++
++#endif // TEID_DSCP_MAPPING_H
+
+diff -rupN a/src/lte-qos/model/teid-dscp-mapping.cc b/src/lte-qos/model/teid-dscp-mapping.cc
+--- a/src/lte-qos/model/teid-dscp-mapping.cc	1970-01-01 00:00:00.000000000 +0000
++++ b/src/lte-qos/model/teid-dscp-mapping.cc	2025-11-24 00:00:00.000000000 +0000
+@@ -0,0 +1,97 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * TeidDscpMapping implementation for lte-qos module
++ */
++
++#include "teid-dscp-mapping.h"
++#include "ns3/singleton.h"
++#include "ns3/log.h"
++#include <map>
++
++namespace ns3 {
++
++NS_LOG_COMPONENT_DEFINE ("TeidDscpMapping");
++
++/**
++ * \brief Implementation class for TEID-DSCP mapping (singleton)
++ */
++class TeidDscpMappingImpl
++{
++public:
++  TeidDscpMappingImpl (void);
++  void SetTeidDscpMapping (uint32_t teid, Ipv4Header::DscpType dscp);
++  void SetTeidDscpMapping (uint32_t teid, EpsBearer::Qci qci);
++  Ipv4Header::DscpType GetTeidDscpMapping (uint32_t teid);
++
++private:
++  std::map<uint32_t, Ipv4Header::DscpType> m_teidDscpMap;
++};
++
++TeidDscpMappingImpl::TeidDscpMappingImpl (void)
++{
++}
++
++void
++TeidDscpMappingImpl::SetTeidDscpMapping (uint32_t teid, Ipv4Header::DscpType dscp)
++{
++  m_teidDscpMap[teid] = dscp;
++}
++
++void
++TeidDscpMappingImpl::SetTeidDscpMapping (uint32_t teid, EpsBearer::Qci qci)
++{
++  Ipv4Header::DscpType dscp;
++  switch (qci)
++    {
++      case EpsBearer::GBR_CONV_VOICE:
++      case EpsBearer::GBR_CONV_VIDEO:
++      case EpsBearer::GBR_GAMING:
++           dscp = Ipv4Header::DSCP_EF;
++           break;
++      case EpsBearer::GBR_NON_CONV_VIDEO:
++           dscp = Ipv4Header::DSCP_AF41;
++           break;
++      case EpsBearer::NGBR_IMS:
++      case EpsBearer::NGBR_VIDEO_TCP_OPERATOR:
++           dscp = Ipv4Header::DSCP_AF31;
++           break;
++      case EpsBearer::NGBR_VOICE_VIDEO_GAMING:
++           dscp = Ipv4Header::DSCP_AF21;
++           break;
++      case EpsBearer::NGBR_VIDEO_TCP_PREMIUM:
++           dscp = Ipv4Header::DSCP_AF11;
++           break;
++      case EpsBearer::NGBR_VIDEO_TCP_DEFAULT:
++      default:
++           dscp = Ipv4Header::DscpDefault;
++           break;
++    }
++  m_teidDscpMap[teid] = dscp;
++  NS_LOG_LOGIC ("TeidDscpMappingImpl::SetTeidDscpMapping TEID: " << teid << " DSCP: " << dscp);
++}
++
++Ipv4Header::DscpType
++TeidDscpMappingImpl::GetTeidDscpMapping (uint32_t teid)
++{
++  return m_teidDscpMap[teid];
++}
++
++namespace TeidDscpMapping {
++
++void
++SetTeidDscpMapping (uint32_t teid, Ipv4Header::DscpType dscp)
++{
++  Singleton<TeidDscpMappingImpl>::Get ()->SetTeidDscpMapping (teid, dscp);
++}
++
++void
++SetTeidDscpMapping (uint32_t teid, EpsBearer::Qci qci)
++{
++  Singleton<TeidDscpMappingImpl>::Get ()->SetTeidDscpMapping (teid, qci);
++}
++
++Ipv4Header::DscpType
++GetTeidDscpMapping (uint32_t teid)
++{
++  return Singleton<TeidDscpMappingImpl>::Get ()->GetTeidDscpMapping (teid);
++}
++
++}
++
++}
+
+# -----------------------------------------------------------------------------
+# Part 5: Update fd-net-device wscript to depend on lte-qos instead of lte
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/fd-net-device/wscript b/src/fd-net-device/wscript
+--- a/src/fd-net-device/wscript	2025-11-23 00:00:00.000000000 +0000
++++ b/src/fd-net-device/wscript	2025-11-24 00:00:00.000000000 +0000
+@@ -104,9 +104,11 @@ def configure(conf):
+ def build(bld):
+     # Don't do anything for this module if emu's not enabled.
+     if not bld.env['ENABLE_FDNETDEV']:
+         return
+
+-    module = bld.create_ns3_module('fd-net-device', ['network'])
++    # Note: lte-qos dependency added for TeidDscpMapping and GtpuHeader
++    # This breaks the circular dependency that would exist if we depended on 'lte' directly
++    module = bld.create_ns3_module('fd-net-device', ['network', 'lte-qos', 'internet'])
+     module.source = [
+         'model/fd-net-device.cc',
+         'helper/fd-net-device-helper.cc',
+
+# -----------------------------------------------------------------------------
+# Part 6: Update fd-net-device.cc to use lte-qos headers
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/fd-net-device/model/fd-net-device.cc b/src/fd-net-device/model/fd-net-device.cc
+--- a/src/fd-net-device/model/fd-net-device.cc.lte	2025-11-23 00:00:00.000000000 +0000
++++ b/src/fd-net-device/model/fd-net-device.cc	2025-11-24 00:00:00.000000000 +0000
+@@ -44,8 +44,9 @@
+ #include "ns3/ipv4-l3-protocol.h"
+ #include "ns3/udp-l4-protocol.h"
+ #include "ns3/udp-header.h"
+-#include "ns3/epc-gtpu-header.h"
+-#include "ns3/teid-dscp-mapping.h"
++// Using lte-qos module headers to avoid circular dependency with lte
++#include "ns3/epc-gtpu-header.h"      // from lte-qos
++#include "ns3/teid-dscp-mapping.h"    // from lte-qos
+
+ namespace ns3 {
+
+# -----------------------------------------------------------------------------
+# Part 7: Update lte module to use lte-qos and remove duplicated files
+# Note: lte should use eps-bearer.h, epc-gtpu-header.h, teid-dscp-mapping.h from lte-qos
+# -----------------------------------------------------------------------------
+
+diff -rupN a/src/lte/wscript b/src/lte/wscript
+--- a/src/lte/wscript.lte	2025-11-23 00:00:00.000000000 +0000
++++ b/src/lte/wscript	2025-11-24 00:00:00.000000000 +0000
+@@ -2,9 +2,12 @@
+
+ def build(bld):
+
+-    lte_module_dependencies = ['core', 'network', 'spectrum', 'stats', 'buildings', 'virtual-net-device','point-to-point','applications','internet','csma']
++    # Note: lte-qos added to dependencies - it provides EpsBearer, GtpuHeader, TeidDscpMapping
++    # This breaks the circular dependency with fd-net-device
++    lte_module_dependencies = ['core', 'network', 'spectrum', 'stats', 'buildings', 'virtual-net-device','point-to-point','applications','internet','csma', 'lte-qos']
+     if (bld.env['ENABLE_EMU']):
+-        lte_module_dependencies.append('fd-net-device')
++        # fd-net-device now depends on lte-qos, not lte, so no circular dependency
++        lte_module_dependencies.append('fd-net-device')
+     module = bld.create_ns3_module('lte', lte_module_dependencies)
+     module.source = [
+         'model/lte-common.cc',
+@@ -57,7 +60,8 @@ def build(bld):
+         'model/lte-mi-error-model.cc',
+         'model/lte-interference.cc',
+         'model/lte-chunk-processor.cc',
+-        'model/eps-bearer.cc',
++        # eps-bearer is now in lte-qos module
++        # 'model/eps-bearer.cc',
+         'model/pf-ff-mac-scheduler.cc',
+         'model/fdmt-ff-mac-scheduler.cc',
+         'model/tdmt-ff-mac-scheduler.cc',
+@@ -68,7 +72,8 @@ def build(bld):
+         'model/epc-enb-application.cc',
+         'model/epc-sgw-pgw-application.cc',
+         'model/tap-epc-enb-application.cc',
+-        'model/epc-gtpu-header.cc',
++        # epc-gtpu-header is now in lte-qos module
++        # 'model/epc-gtpu-header.cc',
+         'model/epc-x2-sap.cc',
+         'model/epc-x2-header.cc',
+         'model/epc-x2.cc',
+@@ -96,8 +101,8 @@ def build(bld):
+         'model/lte-ffr-enhanced-algorithm.cc',
+         'model/lte-ffr-distributed-algorithm.cc',
+         'model/lte-ue-power-control.cc',
+-        'model/lte-time-dilation-factor.cc',
+-        'model/teid-dscp-mapping.cc'
++        'model/lte-time-dilation-factor.cc'
++        # teid-dscp-mapping is now in lte-qos module
+         ]
+
+     module_test = bld.create_ns3_module_test_library('lte')
+@@ -214,7 +219,8 @@ def build(bld):
+         'model/lte-mi-error-model.h',
+         'model/lte-interference.h',
+         'model/lte-chunk-processor.h',
+-        'model/eps-bearer.h',
++        # eps-bearer.h is now in lte-qos module
++        # 'model/eps-bearer.h',
+         'model/pf-ff-mac-scheduler.h',
+         'model/fdmt-ff-mac-scheduler.h',
+         'model/tdmt-ff-mac-scheduler.h',
+@@ -224,7 +230,8 @@ def build(bld):
+         'model/rem-spectrum-phy.h',
+         'model/trace-fading-loss-model.h',
+         'model/epc-enb-application.h',
+-        'model/epc-gtpu-header.h',
++        # epc-gtpu-header.h is now in lte-qos module
++        # 'model/epc-gtpu-header.h',
+         'model/tap-epc-enb-application.h',
+         'model/epc-sgw-pgw-application.h',
+         'model/lte-vendor-specific-parameters.h',
+@@ -256,8 +263,8 @@ def build(bld):
+         'model/lte-ffr-soft-algorithm.h',
+         'model/lte-ffr-enhanced-algorithm.h',
+         'model/lte-ffr-distributed-algorithm.h',
+-        'model/lte-ue-power-control.h',
+-        'model/lte-time-dilation-factor.h',
+-        'model/teid-dscp-mapping.h'
++        'model/lte-ue-power-control.h'
++        'model/lte-time-dilation-factor.h'
++        # teid-dscp-mapping.h is now in lte-qos module
+         ]
+
+     if (bld.env['ENABLE_EMU']):

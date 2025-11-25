@@ -5,6 +5,8 @@ An emulator for Software-Defined Wireless Local Area Network and Software-Define
 
 **Modernized fork**: This fork has been updated to work on **Ubuntu 22.04+** with Docker support.
 
+> **Last Updated**: 2025-11-26
+
 ## Quick Start (Docker - Recommended)
 
 The fastest way to get started with OpenNet:
@@ -45,7 +47,8 @@ docker run --rm --privileged opennet:latest bash -c "mn --test pingall"
 | OVS switches | Working | OVS 2.17.9 |
 | ns-3 C++ examples | Working | hello-simulator, etc. |
 | ns-3.22 Python bindings | Not available | Legacy ns-3.22 requires Python 2 |
-| **ns-3.41 Python bindings** | **Working** | Use `opennet:ns3-modern` image |
+| ns-3.41 Python bindings | Working | Use `opennet:ns3-modern` image |
+| OpenNet module imports | Working | ns3.py, wifi.py, lte.py, opennet.py load in ns3-modern |
 | OpenNet Wi-Fi examples | Experimental | Use ns3-modern image |
 | OpenNet LTE examples | Experimental | Use ns3-modern image |
 
@@ -60,17 +63,27 @@ docker run --rm -it --privileged opennet:latest --shell
 - ns-3 C++ examples working
 - Python bindings NOT available (ns-3.22 limitation)
 
-### Modern Image (ns-3.41, Python 3 bindings)
+### Modern Image (ns-3.41, Python 3 bindings) - Recommended for OpenNet
 ```bash
 docker build -t opennet:ns3-modern -f docker/Dockerfile.ns3-modern .
 docker run --rm -it --privileged opennet:ns3-modern bash
 
-# Test Python bindings
+# Test ns-3 Python bindings
 docker run --rm opennet:ns3-modern python3 -c "from ns import ns; print(ns.wifi)"
+
+# Test OpenNet module imports
+docker run --rm opennet:ns3-modern python3 -c "
+import sys
+sys.path.insert(0, '/opt/opennet/mininet-py3')
+from ns3 import *
+print('OpenNet ns3.py loaded successfully')
+"
 ```
 - Full Python 3 bindings via Cppyy
 - WiFi, LTE, Mesh modules accessible from Python
-- Enables OpenNet WiFi/LTE examples
+- OpenNet modules (ns3.py, wifi.py, lte.py, opennet.py) import successfully
+- Includes cluster module for distributed emulation
+- Updated for ns-3.41 Cppyy API (`from ns import ns` import style)
 
 ## Requirements
 
@@ -136,11 +149,13 @@ cd /root/ns-allinone-3.22/netanim-3.105
 
 ## Known Limitations
 
-1. **ns-3 Python bindings**: ns-3.22's binding generation requires Python 2, which is incompatible with modern systems. OpenNet examples that use `from mininet.ns3 import *` will not work until ns-3 is upgraded to 3.35+.
+1. **ns-3.22 Python bindings**: The legacy ns-3.22 container cannot generate Python bindings (requires Python 2). Use the `opennet:ns3-modern` image with ns-3.41 for full Python 3 support.
 
-2. **LTE patches**: Temporarily disabled due to circular dependency between `fd-net-device` and `lte` modules in ns-3.
+2. **ns-3.41 API differences**: OpenNet modules have been updated for ns-3.41's Cppyy bindings, which use `from ns import ns` import style instead of `import ns.core`. The `BooleanValue` API now requires Python bool (`True`/`False`) instead of strings (`"true"`/`"false"`).
 
-3. **Time dilation**: VirtualTimeForMininet requires a custom kernel and is not included in the Docker image.
+3. **LTE patches (ns-3.22)**: Temporarily disabled due to circular dependency between `fd-net-device` and `lte` modules. Not yet ported to ns-3.41.
+
+4. **Time dilation**: VirtualTimeForMininet requires a custom kernel and is not included in Docker images.
 
 ## Contributing
 

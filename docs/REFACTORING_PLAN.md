@@ -625,4 +625,223 @@ lte → depends on → fd-net-device (existing dependency)
 
 ---
 
+### 2025-11-24 — ns-3.41 Cppyy Python Bindings Migration (Commit bf37713)
+
+**Summary:**
+
+Successfully migrated OpenNet modules to work with ns-3.41's Cppyy-based Python bindings. All core OpenNet modules now import successfully in the `ns3-modern` container.
+
+**Background:**
+
+ns-3.22 used Pybindgen for Python bindings, which required Python 2 and does not work on modern systems. Starting with ns-3.35+, ns-3 switched to Cppyy for Python bindings, which provides:
+- Native Python 3 support
+- Dynamic binding generation (no compilation step)
+- Direct C++ object access from Python
+
+**API Differences: ns-3.22 (Pybindgen) vs ns-3.41 (Cppyy)**
+
+| Aspect | ns-3.22 (Pybindgen) | ns-3.41 (Cppyy) |
+|--------|---------------------|-----------------|
+| Import style | `import ns.core`, `import ns.wifi` | `from ns import ns` |
+| Module access | `ns.core.Seconds(1.0)` | `ns.core.Seconds(1.0)` (same after import) |
+| BooleanValue | `ns.core.BooleanValue("true")` | `ns.core.BooleanValue(True)` |
+| StringValue | `ns.core.StringValue("value")` | `ns.core.StringValue("value")` (same) |
+| Attribute setting | `.SetAttribute("Name", ns.core.StringValue("x"))` | Same syntax |
+| Object creation | `ns.wifi.WifiHelper()` | `ns.wifi.WifiHelper()` (same after import fix) |
+
+**Key Changes Made to OpenNet Modules:**
+
+1. **Import Statement Updates**
+
+   Old style (ns-3.22):
+   ```python
+   import ns.core
+   import ns.wifi
+   import ns.network
+   ```
+
+   New style (ns-3.41):
+   ```python
+   from ns import ns
+   # Then access via ns.core, ns.wifi, ns.network
+   ```
+
+2. **BooleanValue API Fix**
+
+   Old style (accepted string):
+   ```python
+   ns.core.BooleanValue("false")
+   ns.core.BooleanValue("true")
+   ```
+
+   New style (requires Python bool):
+   ```python
+   ns.core.BooleanValue(False)
+   ns.core.BooleanValue(True)
+   ```
+
+3. **Files Updated:**
+   - `mininet-py3/ns3.py` - Core ns-3 integration
+   - `mininet-py3/wifi.py` - WiFi emulation
+   - `mininet-py3/lte.py` - LTE backhaul emulation
+   - `mininet-py3/opennet.py` - NetAnim and utilities
+
+4. **Docker Updates:**
+   - `docker/Dockerfile.ns3-modern` - Added cluster module support
+   - Copies `mininet-py3/cluster/` for distributed emulation
+
+**Verification:**
+
+All modules import successfully in the ns3-modern container:
+
+```bash
+docker run --rm opennet:ns3-modern python3 -c "
+from ns import ns
+print('ns.core:', ns.core)
+print('ns.wifi:', ns.wifi)
+print('ns.lte:', ns.lte)
+print('ns.network:', ns.network)
+"
+
+docker run --rm opennet:ns3-modern python3 -c "
+import sys
+sys.path.insert(0, '/opt/opennet/mininet-py3')
+from ns3 import *
+print('ns3.py loaded successfully')
+"
+```
+
+**Remaining Work:**
+
+1. **End-to-end testing** - Run actual WiFi/LTE examples with the new bindings
+2. **ns-3.41 patch compatibility** - OpenNet patches (sta-wifi-scan, animation-interface, lte) need to be ported to ns-3.41
+3. **Performance validation** - Verify simulation results match expected behavior
+
+**Notes on Cppyy:**
+
+Cppyy generates Python bindings dynamically at runtime by parsing C++ headers. This means:
+- First import may be slow (parsing headers)
+- All ns-3 types are accessible without pre-generation
+- Error messages may reference C++ types directly
+- Some advanced C++ features may not translate perfectly to Python
+
+---
+
+### 2025-11-24 — LTE Patch Circular Dependency Analysis and Fix
+
+**Summary:**
+
+Analyzed and created fixes for the circular dependency between `fd-net-device` and `lte` modules that prevented the LTE patch from being applied.
+
+**Root Cause Analysis:**
+
+The `lte.patch` adds DSCP (Differentiated Services Code Point) marking functionality to `fd-net-device` for QoS handling in LTE GTP-U tunnels. The problem:
+
+1. **Original dependencies:**
+   - `lte` depends on `fd-net-device` (when `ENABLE_EMU=true` for `TapEpcHelper`)
+   - `fd-net-device` depends on `network` only
+
+2. **After `lte.patch`:**
+   - `fd-net-device` includes:
+     - `#include "ns3/epc-gtpu-header.h"` (from `lte` module)
+     - `#include "ns3/teid-dscp-mapping.h"` (from `lte` module)
+   - This creates: `fd-net-device` -> `lte` -> `fd-net-device` (circular!)
+
+3. **Affected classes:**
+   - `TeidDscpMapping` - Maps GTP-U TEIDs to DSCP values for QoS
+   - `GtpuHeader` - Parses GTP-U packets to extract TEID
+   - `EpsBearer::Qci` - QCI (QoS Class Identifier) enum used by TeidDscpMapping
+
+**Why it matters:**
+
+The DSCP marking feature allows OpenNet to:
+- Mark packets with appropriate DSCP values based on LTE bearer QoS settings
+- Enable SDN controllers to apply QoS policies based on DSCP
+- Support end-to-end QoS in LTE backhaul emulation scenarios
+
+**Solution Options:**
+
+| Option | Approach | Pros | Cons |
+|--------|----------|------|------|
+| A. New `lte-qos` module | Move shared classes to new module | Clean separation, no code duplication | More complex patch, new wscript |
+| B. Callback-based | fd-net-device provides callback API | Minimal code changes | Runtime dependency on lte being loaded |
+| C. Code duplication | Copy classes to fd-net-device | Simple patch | Code duplication, maintenance burden |
+
+**Implemented Solution: Option A (lte-qos module)**
+
+Created `ns3-patch/lte-circular-dependency-fix.patch` that:
+
+1. Creates new `src/lte-qos/` module with:
+   - `eps-bearer.{cc,h}` - QCI definitions
+   - `epc-gtpu-header.{cc,h}` - GTP-U header parsing
+   - `teid-dscp-mapping.{cc,h}` - TEID to DSCP mapping
+
+2. Updates dependencies:
+   - `lte-qos` depends on: `[core, network, internet]`
+   - `fd-net-device` depends on: `[network, lte-qos, internet]`
+   - `lte` depends on: `[..., fd-net-device, lte-qos]`
+
+3. Dependency chain (no cycle):
+   ```
+   lte-qos <- fd-net-device <- lte
+             \-------------<--/
+   ```
+
+**Alternative Solution: Option B (Callback-based)**
+
+Also created `ns3-patch/lte-circular-dep-alternative.patch` as a simpler alternative:
+
+1. Creates local classes in fd-net-device:
+   - `DscpMarker` - Singleton for TEID-DSCP mapping
+   - `GtpuHeaderLite` - Minimal GTP-U header parser
+
+2. LTE module registers mappings via `DscpMarker::GetInstance().SetTeidDscpMapping()`
+
+3. No new module needed, but requires lte to be loaded for mappings to work
+
+**Files Created:**
+
+| File | Purpose |
+|------|---------|
+| `ns3-patch/lte-circular-dependency-fix.patch` | Full fix with new lte-qos module |
+| `ns3-patch/lte-circular-dep-alternative.patch` | Alternative callback-based fix |
+
+**Usage:**
+
+To apply the fix (after applying `lte.patch`):
+
+```bash
+cd /path/to/ns-allinone-3.22/ns-3.22
+
+# Option A: New module approach (recommended)
+patch -p1 < /path/to/OpenNet/ns3-patch/lte-circular-dependency-fix.patch
+
+# Option B: Callback approach (simpler)
+patch -p1 < /path/to/OpenNet/ns3-patch/lte-circular-dep-alternative.patch
+```
+
+**Compatibility Notes:**
+
+- Both patches are designed for ns-3.22
+- For ns-3.41, the patches would need to be adapted:
+  - CMake instead of wscript
+  - Different header locations
+  - API changes in some classes
+
+**Testing Status:**
+
+- [ ] Patch applies cleanly to ns-3.22
+- [ ] ns-3 builds with patch applied
+- [ ] LTE example runs successfully
+- [ ] DSCP marking works as expected
+
+**Next Steps:**
+
+1. Test the patches on ns-3.22 build
+2. Update `scripts/build-ns3.sh` to optionally apply LTE fixes
+3. Port patches to ns-3.41 for modern builds
+4. Create end-to-end LTE test case
+
+---
+
 *Add new entries above this line as the project evolves.*
