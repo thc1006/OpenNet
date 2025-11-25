@@ -1,25 +1,41 @@
-OpenNet
-=======
+# OpenNet
 
 An emulator for Software-Defined Wireless Local Area Network and Software-Defined LTE Backhaul Network.
 
-**Modernized fork**: This fork has been updated to work on **Ubuntu 22.04+** with Docker support.
+> **This is a modernized fork** updated for **Ubuntu 22.04+** with Docker support and Python 3 compatibility.
+> Original project: [dlinknctu/OpenNet](https://github.com/dlinknctu/OpenNet)
 
-> **Last Updated**: 2025-11-26
+---
 
-## Quick Start (Docker - Recommended)
+## Modernization Status
 
-The fastest way to get started with OpenNet:
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Mininet core | Working | All topologies, pingall, iperf |
+| OVS switches | Working | v2.17.9 |
+| ns-3 C++ examples | Working | hello-simulator, etc. |
+| ns-3.22 Python bindings | Not available | Use ns3-modern image instead |
+| **ns-3.41 Python bindings** | **Working** | Full Cppyy support |
+| **OpenNet modules** | **Working** | ns3.py, wifi.py, lte.py, opennet.py |
+| Docker builds | Working | ~4GB images |
+| GitHub Actions CI | Working | Smoke tests pass |
+
+### Known Limitations
+
+- **LTE patches**: Circular dependency issue (fix patches available, not yet integrated)
+- **Time dilation**: Requires custom kernel, not supported in Docker
+
+---
+
+## Quick Start (Docker)
 
 ```bash
 # Clone the repository
 git clone https://github.com/thc1006/OpenNet.git
 cd OpenNet
 
-# Build the Docker image
+# Build and run (standard image)
 docker build -t opennet:latest -f docker/Dockerfile .
-
-# Run smoke tests
 docker run --rm --privileged opennet:latest --test
 
 # Interactive shell
@@ -29,41 +45,10 @@ docker run --rm -it --privileged opennet:latest --shell
 docker run --rm --privileged opennet:latest bash -c "mn --test pingall"
 ```
 
-## Features
+### Modern Image (Recommended for WiFi/LTE)
 
-* Built on top of Mininet and ns-3
-* Complement ns-3 by supporting channel scan behavior on Wi-Fi station (`sta-wifi-scan.patch`)
-* Show CsmaLink and SimpleLink in NetAnim (`animation-interface.patch`)
-* Support SDN-based LTE backhaul emulation (`lte.patch`)
-* **NEW**: Docker support for Ubuntu 22.04+
-* **NEW**: Python 3 compatible modules
-* **NEW**: GCC 11+ compatibility patches for ns-3.22
+For full Python 3 bindings with ns-3.41:
 
-## What Works
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Mininet core | Working | All topologies (tree, linear, single, torus) |
-| OVS switches | Working | OVS 2.17.9 |
-| ns-3 C++ examples | Working | hello-simulator, etc. |
-| ns-3.22 Python bindings | Not available | Legacy ns-3.22 requires Python 2 |
-| ns-3.41 Python bindings | Working | Use `opennet:ns3-modern` image |
-| OpenNet module imports | Working | ns3.py, wifi.py, lte.py, opennet.py load in ns3-modern |
-| OpenNet Wi-Fi examples | Experimental | Use ns3-modern image |
-| OpenNet LTE examples | Experimental | Use ns3-modern image |
-
-## Docker Images
-
-### Standard Image (ns-3.22, legacy)
-```bash
-docker build -t opennet:latest -f docker/Dockerfile .
-docker run --rm -it --privileged opennet:latest --shell
-```
-- Mininet + OVS fully working
-- ns-3 C++ examples working
-- Python bindings NOT available (ns-3.22 limitation)
-
-### Modern Image (ns-3.41, Python 3 bindings) - Recommended for OpenNet
 ```bash
 docker build -t opennet:ns3-modern -f docker/Dockerfile.ns3-modern .
 docker run --rm -it --privileged opennet:ns3-modern bash
@@ -79,30 +64,91 @@ from ns3 import *
 print('OpenNet ns3.py loaded successfully')
 "
 ```
-- Full Python 3 bindings via Cppyy
-- WiFi, LTE, Mesh modules accessible from Python
-- OpenNet modules (ns3.py, wifi.py, lte.py, opennet.py) import successfully
-- Includes cluster module for distributed emulation
-- Updated for ns-3.41 Cppyy API (`from ns import ns` import style)
 
-## Requirements
+---
 
-### Docker (Recommended)
-- Docker 20.10+
-- Linux host with kernel modules for OVS
+## Features
 
-### Native Installation (Ubuntu 22.04)
-```bash
-sudo ./scripts/bootstrap-ubuntu-22.04.sh
-./scripts/build-ns3.sh
+* Built on top of Mininet and ns-3
+* Wi-Fi station channel scan behavior (`sta-wifi-scan.patch`)
+* CsmaLink and SimpleLink visualization in NetAnim (`animation-interface.patch`)
+* SDN-based LTE backhaul emulation (`lte.patch`)
+* **Docker support** for Ubuntu 22.04+
+* **Python 3 compatible** modules
+* **GCC 11+ compatibility** patches for ns-3.22
+
+---
+
+## Python 3 Compatibility (ns-3.22)
+
+If building ns-3.22 natively and encountering Python 2 syntax errors:
+
 ```
+File "wscript", line 109
+    print name.ljust(25),
+SyntaxError: Missing parentheses in call to 'print'
+```
+
+**Solution**: Apply the WAF Python 3 patch:
+
+```bash
+cd ns-allinone-3.22/ns-3.22
+patch -p1 < /path/to/OpenNet/ns3-patch/waf-python3.patch
+```
+
+| Conversion | Count |
+|------------|-------|
+| `print x` → `print(x)` | 40 |
+| `print x,` → `print(x, end=" ")` | 8 |
+| `print >> f, x` → `print(x, file=f)` | 8 |
+| `except X, e:` → `except X as e:` | 6 |
+
+For detailed analysis, see [docs/NS3-PYTHON3-ANALYSIS-REPORT.md](docs/NS3-PYTHON3-ANALYSIS-REPORT.md).
+
+---
 
 ## Documentation
 
-- [Tutorial](doc/TUTORIAL.md) - Original OpenNet tutorial
-- [Architecture Overview](docs/ARCHITECTURE-OVERVIEW.md) - System design
-- [Refactoring Plan](docs/REFACTORING_PLAN.md) - Modernization status
-- [Python 3 Migration](docs/PYTHON3-MIGRATION-PLAN.md) - Migration details
+| Document | Description |
+|----------|-------------|
+| [Tutorial](doc/TUTORIAL.md) | Original OpenNet tutorial |
+| [Architecture Overview](docs/ARCHITECTURE-OVERVIEW.md) | System design |
+| [Refactoring Plan](docs/REFACTORING_PLAN.md) | Full modernization details |
+| [Python 3 Migration](docs/PYTHON3-MIGRATION-PLAN.md) | Migration plan |
+| [NS3 Python 3 Analysis](docs/NS3-PYTHON3-ANALYSIS-REPORT.md) | Compatibility analysis |
+
+---
+
+## Native Installation (Ubuntu 22.04)
+
+```bash
+# Install dependencies
+sudo ./scripts/bootstrap-ubuntu-22.04.sh
+
+# Build ns-3.22 with patches
+./scripts/build-ns3.sh
+
+# Optional: Enable LTE patches
+./scripts/build-ns3.sh --enable-lte
+```
+
+---
+
+## Run OpenNet Examples
+
+```bash
+# Using Docker (recommended)
+docker run --rm -it --privileged opennet:ns3-modern bash
+cd /opt/opennet/mininet-py3
+python3 -c "from ns3 import *; print('Ready')"
+
+# Run NetAnim (inside container)
+cd /root/ns-allinone-3.22/netanim-3.105
+./NetAnim
+# Open XML files from /tmp/xml
+```
+
+---
 
 ## Reading Material
 
@@ -110,52 +156,13 @@ sudo ./scripts/bootstrap-ubuntu-22.04.sh
 - [Introduction to Mininet](https://github.com/mininet/mininet/wiki/Introduction-to-Mininet)
 - [Link modeling using ns-3](https://github.com/mininet/mininet/wiki/Link-modeling-using-ns-3)
 
+---
+
 ## Legacy Installation (Ubuntu 14.04)
 
 For the original Ubuntu 14.04 installation, see the [original repository](https://github.com/dlinknctu/OpenNet).
 
-```bash
-sudo su -
-apt-get install git ssh
-git clone https://github.com/dlinknctu/OpenNet.git
-cd OpenNet
-./configure.sh
-./install.sh master
-```
-
-## Run OpenNet Example Script
-
-```bash
-# Using Docker
-docker run --rm -it --privileged opennet:latest bash
-cd /root/opennet-mininet/examples/opennet/wifi
-python3 two-ap-one-sw.py  # Note: Requires ns-3 Python bindings
-
-# Native (legacy)
-sudo su -
-cd OpenNet
-python mininet/examples/opennet/wifi/two-ap-one-sw.py
-```
-
-## Run NetAnim
-
-Use NetAnim to open the XML file in the directory `/tmp/xml`.
-
-```bash
-# Inside Docker container
-cd /root/ns-allinone-3.22/netanim-3.105
-./NetAnim
-```
-
-## Known Limitations
-
-1. **ns-3.22 Python bindings**: The legacy ns-3.22 container cannot generate Python bindings (requires Python 2). Use the `opennet:ns3-modern` image with ns-3.41 for full Python 3 support.
-
-2. **ns-3.41 API differences**: OpenNet modules have been updated for ns-3.41's Cppyy bindings, which use `from ns import ns` import style instead of `import ns.core`. The `BooleanValue` API now requires Python bool (`True`/`False`) instead of strings (`"true"`/`"false"`).
-
-3. **LTE patches (ns-3.22)**: Temporarily disabled due to circular dependency between `fd-net-device` and `lte` modules. Not yet ported to ns-3.41.
-
-4. **Time dilation**: VirtualTimeForMininet requires a custom kernel and is not included in Docker images.
+---
 
 ## Contributing
 
